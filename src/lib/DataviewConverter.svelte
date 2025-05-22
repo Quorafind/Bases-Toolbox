@@ -200,12 +200,11 @@ LIMIT 30`
   {/if}
   
   <div class="help-section">
-    <div class="help-header">
-      <h3>How to use</h3>
-    </div>
-    <div class="help-content">
-      <div class="help-column">
-        <h4>Steps</h4>
+    <div class="usage-section">
+      <div class="help-header">
+        <h3>How to use</h3>
+      </div>
+      <div class="usage-steps">
         <ol>
           <li>Enter a Dataview TABLE query in the left box</li>
           <li>Choose whether to place filters in views or globally</li>
@@ -215,21 +214,27 @@ LIMIT 30`
           <li>Copy the YAML to create a .base file in Obsidian</li>
         </ol>
       </div>
-      
-      <div class="help-column">
-        <h4>Supported Features</h4>
-        <ul>
-          <li><code>TABLE</code> fields with aliases</li>
-          <li><code>FROM</code> source selection (folders, tags)</li>
-          <li><code>WHERE</code> conditions (simple AND, OR)</li>
-          <li><code>SORT</code> clause with ASC/DESC</li>
-          <li><code>LIMIT</code> clause</li>
-          <li><code>GROUP BY</code> clause</li>
-        </ul>
-        
-        <h4>Filter Groups</h4>
-        <p>Complex filters can be grouped with nested AND/OR logic:</p>
-        <pre class="filter-example">filters:
+    </div>
+    
+    <div class="reference-section">
+      <div class="help-header">
+        <h3>Reference</h3>
+      </div>
+      <div class="help-content">
+        <div class="help-column">
+          <h4>Supported Features</h4>
+          <ul>
+            <li><code>TABLE</code> fields with aliases</li>
+            <li><code>FROM</code> source selection (folders, tags)</li>
+            <li><code>WHERE</code> conditions (simple AND, OR)</li>
+            <li><code>SORT</code> clause with ASC/DESC</li>
+            <li><code>LIMIT</code> clause</li>
+            <li><code>GROUP BY</code> clause</li>
+          </ul>
+          
+          <h4>Filter Groups</h4>
+          <p>Complex filters can be grouped with nested AND/OR logic:</p>
+          <pre class="filter-example">filters:
   and:
     - condition1
     - or:
@@ -238,10 +243,12 @@ LIMIT 30`
     - and:
         - condition4
         - condition5</pre>
+        </div>
         
-        <h4>Column Order & Sorting</h4>
-        <p>Bases supports two separate properties for arrangement:</p>
-        <pre class="filter-example"># Column order (display order in table)
+        <div class="help-column">
+          <h4>Column Order & Sorting</h4>
+          <p>Bases supports two separate properties for arrangement:</p>
+          <pre class="filter-example"># Column order (display order in table)
 order:
   - column1
   - column2
@@ -253,41 +260,42 @@ sort:
     direction: DESC
   - column: date
     direction: ASC</pre>
-        
-        <h4>Filter Functions</h4>
-        <ul class="file-props filter-list">
-          <li><code>contains()</code></li>
-          <li><code>not_contains()</code></li>
-          <li><code>contains_any()</code></li>
-          <li><code>contains_all()</code></li>
-          <li><code>startswith()</code></li>
-          <li><code>endswith()</code></li>
-          <li><code>empty()</code></li>
-          <li><code>not_empty()</code></li>
-          <li><code>if()</code></li>
-          <li><code>in_folder()</code></li>
-          <li><code>links_to()</code></li>
-          <li><code>not()</code></li>
-          <li><code>tag()</code></li>
-          <li><code>date_before()</code></li>
-          <li><code>date_after()</code></li>
-          <li><code>date_equals()</code></li>
-          <li><code>date_not_equals()</code></li>
-          <li><code>date_on_or_before()</code></li>
-          <li><code>date_on_or_after()</code></li>
-          <li><code>tagged_with()</code></li>
-        </ul>
-        
-        <h4>File Properties</h4>
-        <ul class="file-props">
-          <li><code>file.name</code> - file name</li>
-          <li><code>file.path</code> - full file path</li>
-          <li><code>file.folder</code> - containing folder</li>
-          <li><code>file.extension</code> - file extension</li>
-          <li><code>file.size</code> - file size</li>
-          <li><code>file.ctime</code> - created time</li>
-          <li><code>file.mtime</code> - modified time</li>
-        </ul>
+          
+          <h4>Filter Functions</h4>
+          <ul class="file-props filter-list">
+            <li><code>contains()</code></li>
+            <li><code>not_contains()</code></li>
+            <li><code>contains_any()</code></li>
+            <li><code>contains_all()</code></li>
+            <li><code>startswith()</code></li>
+            <li><code>endswith()</code></li>
+            <li><code>empty()</code></li>
+            <li><code>not_empty()</code></li>
+            <li><code>if()</code></li>
+            <li><code>in_folder()</code></li>
+            <li><code>links_to()</code></li>
+            <li><code>not()</code></li>
+            <li><code>tag()</code></li>
+            <li><code>date_before()</code></li>
+            <li><code>date_after()</code></li>
+            <li><code>date_equals()</code></li>
+            <li><code>date_not_equals()</code></li>
+            <li><code>date_on_or_before()</code></li>
+            <li><code>date_on_or_after()</code></li>
+            <li><code>tagged_with()</code></li>
+          </ul>
+          
+          <h4>File Properties</h4>
+          <ul class="file-props">
+            <li><code>file.name</code> - file name</li>
+            <li><code>file.path</code> - full file path</li>
+            <li><code>file.folder</code> - containing folder</li>
+            <li><code>file.extension</code> - file extension</li>
+            <li><code>file.size</code> - file size</li>
+            <li><code>file.ctime</code> - created time</li>
+            <li><code>file.mtime</code> - modified time</li>
+          </ul>
+        </div>
       </div>
     </div>
   </div>
@@ -522,12 +530,18 @@ sort:
   }
   
   .help-section {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
     margin-top: 0;
+  }
+  
+  .usage-section, .reference-section {
     border-radius: 8px;
     overflow: hidden;
     background: white;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
-    flex: 0 0 auto;
+    border: 1px solid #e1e4e8;
   }
   
   .help-header {
@@ -539,7 +553,22 @@ sort:
   .help-header h3 {
     margin: 0;
     font-size: 16px;
-    color: #444;
+    color: #50567a;
+    font-weight: 600;
+  }
+  
+  .usage-steps {
+    padding: 16px;
+  }
+  
+  .usage-steps ol {
+    margin: 0 0 0 20px;
+    padding: 0;
+  }
+  
+  .usage-steps li {
+    margin-bottom: 8px;
+    line-height: 1.4;
   }
   
   .help-content {
@@ -624,6 +653,7 @@ sort:
     border-radius: 4px;
     font-size: 13px;
     margin-bottom: 4px;
+    border: 1px solid #e1e4e8;
   }
   
   code {
@@ -633,6 +663,7 @@ sort:
     font-family: 'JetBrains Mono', 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
     font-size: 13px;
     color: #50567a;
+    border: 1px solid #e1e4e8;
   }
   
   .filter-example {
@@ -645,5 +676,6 @@ sort:
     margin: 10px 0;
     white-space: pre;
     overflow-x: auto;
+    border: 1px solid #e1e4e8;
   }
 </style> 
