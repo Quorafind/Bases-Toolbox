@@ -10,6 +10,8 @@ export interface MockFile {
     size: number;
     folder: string;
     path: string;
+    tags?: string[];
+    links?: string[];
   };
   [key: string]: any;
 }
@@ -58,6 +60,13 @@ function generateMockFile(index: number): MockFile {
     () => possibleTags[Math.floor(Math.random() * possibleTags.length)]
   );
 
+  // Random links
+  const possibleLinks = ["Home", "Projects", "Books", "Reading", "Textbook"];
+  const links = Array.from(
+    { length: Math.floor(Math.random() * 3) },
+    () => possibleLinks[Math.floor(Math.random() * possibleLinks.length)]
+  );
+
   // Base file properties
   const fileName = faker.system.fileName().replace(/\.[^/.]+$/, "") + ".md";
 
@@ -71,6 +80,8 @@ function generateMockFile(index: number): MockFile {
       size: faker.number.int({ min: 1024, max: 1024 * 1024 * 10 }),
       folder: faker.system.directoryPath(),
       path: faker.system.filePath().replace(/\.[^/.]+$/, ext),
+      tags,
+      links,
     },
     status: statuses[Math.floor(Math.random() * statuses.length)],
     priority: faker.number.int({ min: 1, max: 5 }),
@@ -115,6 +126,18 @@ function generateBookData(count: number): MockFile[] {
     const readingProgress =
       status === "Done" ? 100 : Math.floor(Math.random() * 100);
 
+    const tags = [
+      "book",
+      genre.toLowerCase(),
+      ...(Math.random() > 0.5 ? ["favorite"] : []),
+    ];
+
+    // Some books should link to Textbook for our filter to work
+    const links = ["Books", "Reading"];
+    if (Math.random() > 0.5) {
+      links.push("Textbook");
+    }
+
     return {
       file: {
         file: `book_${i}`,
@@ -125,14 +148,14 @@ function generateBookData(count: number): MockFile[] {
         size: faker.number.int({ min: 5000, max: 15000 }),
         folder: "/Reading/Books",
         path: `/Reading/Books/book_${i}.md`,
+        tags,
+        links,
       },
       status,
       priority: faker.number.int({ min: 1, max: 5 }),
-      tags: [
-        "book",
-        genre.toLowerCase(),
-        ...(Math.random() > 0.5 ? ["favorite"] : []),
-      ],
+      price: faker.number.float({ min: 0, max: 100, fractionDigits: 2 }),
+      age: faker.number.int({ min: 1, max: 100 }),
+      tags,
       author: faker.person.fullName(),
       created: faker.date.past(),
       summary: faker.lorem.paragraph(),
@@ -157,6 +180,15 @@ export function generateDemoFiles(): MockFile[] {
   const baseFiles = generateMockFiles(15);
   const bookFiles = generateBookData(15);
 
+  // Create base data for formula evaluation
+  const baseData = {
+    formulas: {
+      read_status: 'if(status == "Done", "Read", "Unread")',
+      reading_time: "wordCount / 250",
+      ppu: "price / age",
+    },
+  };
+
   // Add specific files with properties for demonstrating filters
   const specialFiles = [
     {
@@ -169,6 +201,8 @@ export function generateDemoFiles(): MockFile[] {
         size: 15460,
         folder: "/Reading/Books",
         path: "/Reading/Books/1984.md",
+        tags: ["book", "fiction", "classic", "dystopian"],
+        links: ["Books", "Classics", "Textbook"],
       },
       status: "Done",
       priority: 5,
@@ -187,6 +221,7 @@ export function generateDemoFiles(): MockFile[] {
       rating: 5,
       dateStarted: new Date("2023-01-20"),
       dateFinished: new Date("2023-02-15"),
+      _baseData: baseData,
     },
     {
       file: {
@@ -198,6 +233,8 @@ export function generateDemoFiles(): MockFile[] {
         size: 12240,
         folder: "/Reading/Books",
         path: "/Reading/Books/The_Hobbit.md",
+        tags: ["book", "fiction", "fantasy"],
+        links: ["Books", "Textbook", "Fantasy"],
       },
       status: "In Progress",
       priority: 4,
@@ -216,6 +253,7 @@ export function generateDemoFiles(): MockFile[] {
       rating: null,
       dateStarted: new Date("2023-04-15"),
       dateFinished: null,
+      _baseData: baseData,
     },
     {
       file: {
@@ -227,6 +265,8 @@ export function generateDemoFiles(): MockFile[] {
         size: 8240,
         folder: "/Projects/Alpha",
         path: "/Projects/Alpha/Planning.md",
+        tags: ["project", "planning", "important", "tag"],
+        links: ["Projects", "Alpha", "Team"],
       },
       status: "In Progress",
       priority: 4,
@@ -241,6 +281,7 @@ export function generateDemoFiles(): MockFile[] {
       summary: "Project planning document for Alpha",
       wordCount: 4500,
       category: "Project",
+      _baseData: baseData,
     },
     {
       file: {
@@ -252,6 +293,8 @@ export function generateDemoFiles(): MockFile[] {
         size: 5130,
         folder: "/Meetings",
         path: "/Meetings/Research_Review.md",
+        tags: ["meeting", "research", "notes", "tag"],
+        links: ["Meetings", "Research"],
       },
       status: "Done",
       priority: 3,
@@ -266,8 +309,14 @@ export function generateDemoFiles(): MockFile[] {
       summary: "Notes from the research review meeting",
       wordCount: 2200,
       category: "Meeting",
+      _baseData: baseData,
     },
   ];
 
-  return [...specialFiles, ...bookFiles, ...baseFiles];
+  // Add _baseData to all files
+  const allFiles = [...specialFiles, ...bookFiles, ...baseFiles].map((file) => {
+    return { ...file, _baseData: baseData };
+  });
+
+  return allFiles;
 }

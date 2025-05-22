@@ -7,7 +7,7 @@ export const baseTemplates = {
     name: "Basic Table",
     yaml: `filters:
   or:
-    - tagged_with(file.file, "tag")
+    - tagged_with(file.file, "book")
     - and:
         - tagged_with(file.file, "book")
         - links_to(file.file, "Textbook")
@@ -39,7 +39,10 @@ views:
   bookLibrary: {
     name: "Book Library",
     yaml: `filters:
-  tagged_with(file.file, "book")
+  and:
+    - tagged_with(file.file, "book")
+    - not:
+        - tagged_with(file.file, "textbook")
 formulas:
   read_status: 'if(status == "Done", "Read", "Unread")'
   reading_time: 'wordCount / 250'
@@ -81,7 +84,8 @@ views:
   projectTracker: {
     name: "Project Tracker",
     yaml: `filters:
-  tagged_with(file.file, "project")
+  and:
+    - tagged_with(file.file, "project")
 formulas:
   days_active: 'if(status == "In Progress", date_diff(now(), created) / 86400000, 0)'
   status_emoji: 'if(status == "Done", "✅", if(status == "In Progress", "🔄", if(status == "Backlog", "📌", "❓")))'
@@ -115,7 +119,8 @@ views:
   locationTracker: {
     name: "Location Tracker",
     yaml: `filters:
-  has_coords == true
+  and:
+    - has_coords == true
 formulas:
   location_name: 'concat(file.name, " (", lat, ", ", long, ")")'
 display:

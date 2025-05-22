@@ -30,6 +30,14 @@
       // Reset filter rejection reasons
       filterRejectionReasons = {};
       
+      // Attach base data to all files for formula evaluation
+      mockFiles = mockFiles.map(file => {
+        return { ...file, _baseData: parsedBase };
+      });
+      
+      // Pre-calculate all formulas used in filters to improve performance
+      preCalculateFormulas(mockFiles, parsedBase);
+      
       // Apply filters to mockFiles with tracking
       const baseFilters = parsedBase?.filters;
       if (baseFilters) {
@@ -37,15 +45,39 @@
       } else {
         filteredFiles = [...mockFiles];
       }
-      
+      console.log("filteredFiles", filteredFiles);
       // If we have view-specific filters, apply those too
       if (parsedBase?.views && parsedBase.views[activeView]?.filters) {
         filteredFiles = applyFiltersWithTracking(filteredFiles, parsedBase.views[activeView].filters, "view");
+        console.log("filteredFiles", filteredFiles);
       }
+      console.log("filteredFiles", filteredFiles);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
       parsedBase = null;
     }
+  }
+
+  // Pre-calculate all formulas that might be used in filters to improve performance
+  function preCalculateFormulas(files: any[], baseData: any) {
+    // No formulas to calculate
+    if (!baseData || !baseData.formulas) return;
+    
+    // Get all formula keys from the base definition
+    const formulaKeys = Object.keys(baseData.formulas);
+    
+    // Pre-calculate all formulas for each file
+    files.forEach(file => {
+      // Create a cache object for calculated formulas if it doesn't exist
+      if (!file._formulaCache) {
+        file._formulaCache = {};
+      }
+      
+      // Calculate each formula and store it in the cache
+      formulaKeys.forEach(key => {
+        file._formulaCache[key] = applyFormula(file, baseData.formulas[key]);
+      });
+    });
   }
 
   // Apply filters and track rejection reasons
@@ -56,9 +88,11 @@
     
     const result = files.filter((file) => {
       const passes = evaluateFilterWithTracking(file, filters, rejectedFileReasons, file.file.name);
+      console.log("tfile", file.file.name, passes, filters);
       return passes;
     });
     
+    console.log("result", result);
     // Store rejection reasons
     filterRejectionReasons[source] = Object.entries(rejectedFileReasons)
       .map(([filename, reasons]) => `${filename}: ${reasons.join(', ')}`);
@@ -76,6 +110,7 @@
       rejectionReasons[filename].push(reason);
       return false;
     };
+    
     
     // Handle string expressions (like "status != 'done'")
     if (typeof filter === "string") {
@@ -106,6 +141,7 @@
       );
       
       if (!passes) {
+        console.log("subReasons", subReasons);
         // Collect all sub-reasons if nothing passed
         const allReasons = Object.values(subReasons).flat();
         if (allReasons.length > 0) {
@@ -148,6 +184,7 @@
   
   // Simplified function to evaluate expressions with tracking
   function evaluateExpressionForTracking(file: any, expression: string): {passes: boolean, reason: string} {
+    console.log("tfile-v2", file, expression)
     // This is a simplified version - in a real implementation,
     // you would need to adapt the full expression evaluation with detailed reasons
     try {
@@ -159,16 +196,39 @@
         }
         
         const [_, functionName, paramsStr] = match;
-        // In a full implementation, you'd provide specific reasons based on function type
-        
-        // For illustrative purposes, extract the property and value being checked
+        // Parse parameters
         const params = paramsStr.split(',').map(p => p.trim());
         const objPath = params[0];
-        const checkValue = params.length > 1 ? params[1] : '';
+        const checkValue = params.length > 1 ? params[1].replace(/"/g, '') : '';
+        
+        // Try to actually evaluate the function for better error reporting
+        let passes = false;
+        
+        // Handle specific function types
+        if (functionName === 'tagged_with') {
+          // Special handling for tagged_with
+          const fileObj = file.file;
+          if (fileObj && fileObj.tags && Array.isArray(fileObj.tags)) {
+            passes = fileObj.tags.includes(checkValue);
+          }
+          console.log(passes);
+        } else if (functionName === 'links_to') {
+          // Special handling for links_to
+          const fileObj = file.file;
+          if (fileObj && fileObj.links && Array.isArray(fileObj.links)) {
+            passes = fileObj.links.includes(checkValue);
+          }
+        } else if (functionName === 'in_folder') {
+          // Special handling for in_folder
+          const fileObj = file.file;
+          if (fileObj && fileObj.folder && fileObj.folder.includes(checkValue)) {
+            passes = true;
+          }
+        }
         
         return { 
-          passes: false, 
-          reason: `Function '${functionName}' failed for ${objPath} with value ${checkValue}` 
+          passes: passes, 
+          reason: passes ? 'Passed' : `Function '${functionName}' failed for ${objPath} with value ${checkValue}` 
         };
       }
 
@@ -187,13 +247,92 @@
           const [left, right] = expression.split(op).map((part) => part.trim());
           const leftValue = getPropertyValue(file, left);
           
+          // Parse right value - convert to number if it looks like a number
+          let rightValue: any = right.replace(/"/g, '');
+          if (!isNaN(Number(right))) {
+            rightValue = Number(right);
+          }
+
+          let passes = false;
+
+          console.log("leftValue", leftValue, "rightValue", rightValue, "passes", passes);
+          // Handle string comparisons
+          if (typeof leftValue === "string" && typeof rightValue === "string") {
+            if (op === "==") {
+              passes = leftValue === rightValue;
+            } else if (op === "!=") {
+              passes = leftValue !== rightValue;
+            } else if (op === "contains") {
+              passes = leftValue.includes(rightValue);
+            } else if (op === "not_contains") {
+              passes = !leftValue.includes(rightValue);
+            } else if (op === "starts_with") {
+              passes = leftValue.startsWith(rightValue);
+            } else if (op === "ends_with") {
+              passes = leftValue.endsWith(rightValue);
+            } else if (op === "matches") {
+              passes = leftValue.match(rightValue) !== null;
+            } else if (op === "not_matches") {
+              passes = leftValue.match(rightValue) === null;
+            }
+          } 
+          // Handle number comparisons
+          else if (typeof leftValue === "number" && typeof rightValue === "number") {
+            if (op === "==") {
+              passes = leftValue === rightValue;
+            } else if (op === "!=") {
+              passes = leftValue !== rightValue;
+            } else if (op === ">=") {
+              passes = leftValue >= rightValue;
+            } else if (op === ">") {
+              passes = leftValue > rightValue;
+            } else if (op === "<=") {
+              passes = leftValue <= rightValue;
+            } else if (op === "<") {
+              passes = leftValue < rightValue;
+            }
+          }
+          // Handle mixed type comparisons with numbers (common when comparing against string values in filters)
+          else if (typeof leftValue === "number" && typeof rightValue === "string" && !isNaN(Number(rightValue))) {
+            const numRightValue = Number(rightValue);
+            if (op === "==") {
+              passes = leftValue === numRightValue;
+            } else if (op === "!=") {
+              passes = leftValue !== numRightValue;
+            } else if (op === ">=") {
+              passes = leftValue >= numRightValue;
+            } else if (op === ">") {
+              passes = leftValue > numRightValue;
+            } else if (op === "<=") {
+              passes = leftValue <= numRightValue;
+            } else if (op === "<") {
+              passes = leftValue < numRightValue;
+            }
+          } 
+
+          else if (typeof leftValue === "boolean" && typeof rightValue === "string") {
+            if (op === "==") {
+              passes = (leftValue === true && rightValue === "true") || (leftValue === false && rightValue === "false");
+            } else if (op === "!=") {
+              passes = (leftValue === true && rightValue === "false") || (leftValue === false && rightValue === "true");
+            }
+          } else if (typeof leftValue === "string" && typeof rightValue === "boolean") {
+            if (op === "==") {
+              passes = (leftValue === "true" && rightValue === true) || (leftValue === "false" && rightValue === false);
+            } else if (op === "!=") {
+              passes = (leftValue === "true" && rightValue === false) || (leftValue === "false" && rightValue === true);
+            }
+          }
+          
+          console.log(leftValue, rightValue, passes);
           // Format the reason with actual values
           return { 
-            passes: false, 
-            reason: `${left} (${leftValue}) ${name} ${right}` 
+            passes: passes, 
+            reason: `${left} (${leftValue}) ${name} ${right}${typeof rightValue === 'number' ? ' (' + rightValue + ')' : ''}` 
           };
         }
       }
+      
 
       // If it's just a property name
       return { 
@@ -262,6 +401,13 @@
       // Reset filter rejection reasons
       filterRejectionReasons = {};
       
+      // Ensure we have pre-calculated formulas for base filters
+      if (parsedBase.formulas) {
+        // Pre-calculate any formula that might be used in the view's filters
+        let viewFilter = parsedBase.views[index].filters;
+        preCalculateFormulasForFilter(mockFiles, parsedBase, viewFilter);
+      }
+      
       // Apply base filters first if they exist
       if (parsedBase?.filters) {
         filteredFiles = applyFiltersWithTracking(mockFiles, parsedBase.filters, "base");
@@ -281,10 +427,95 @@
     }
   }
   
+  // Pre-calculate formulas specifically for a given filter
+  function preCalculateFormulasForFilter(files: any[], baseData: any, filter: any) {
+    // Helper to extract formula references from a filter string
+    const extractFormulaRefs = (filterStr: string): string[] => {
+      const refs: string[] = [];
+      if (!filterStr) return refs;
+      
+      // Check for direct formula reference in comparison
+      const formulaMatch = filterStr.match(/formula\.([a-zA-Z0-9_]+)/g);
+      if (formulaMatch) {
+        formulaMatch.forEach(match => {
+          refs.push(match.substring(8)); // remove 'formula.' prefix
+        });
+      }
+      
+      return refs;
+    };
+    
+    // Process a filter expression recursively
+    const processFilter = (f: any): string[] => {
+      if (typeof f === 'string') {
+        return extractFormulaRefs(f);
+      }
+      
+      let formulaRefs: string[] = [];
+      
+      // Handle AND condition
+      if (f.and) {
+        f.and.forEach((condition: any) => {
+          formulaRefs = [...formulaRefs, ...processFilter(condition)];
+        });
+      }
+      
+      // Handle OR condition
+      if (f.or) {
+        f.or.forEach((condition: any) => {
+          formulaRefs = [...formulaRefs, ...processFilter(condition)];
+        });
+      }
+      
+      // Handle NOT condition
+      if (f.not) {
+        if (Array.isArray(f.not)) {
+          f.not.forEach((condition: any) => {
+            formulaRefs = [...formulaRefs, ...processFilter(condition)];
+          });
+        } else {
+          formulaRefs = [...formulaRefs, ...processFilter(f.not)];
+        }
+      }
+      
+      return formulaRefs;
+    };
+    
+    // Extract all formula references from the filter
+    const formulaRefs = processFilter(filter);
+    const uniqueRefs = [...new Set(formulaRefs)];
+    
+    // Pre-calculate only the formulas needed for this filter
+    files.forEach(file => {
+      // Create a cache object for calculated formulas if it doesn't exist
+      if (!file._formulaCache) {
+        file._formulaCache = {};
+      }
+      
+      // Calculate only the formulas needed
+      uniqueRefs.forEach(key => {
+        if (file._formulaCache[key] === undefined && baseData.formulas && baseData.formulas[key]) {
+          file._formulaCache[key] = applyFormula(file, baseData.formulas[key]);
+        }
+      });
+    });
+  }
+
   // Generate a new set of random data
   function regenerateData() {
     mockFiles = generateDemoFiles();
     mockFilesGenerated = true;
+    
+    // Attach base data to all files if we have a parsed base
+    if (parsedBase) {
+      mockFiles = mockFiles.map(file => {
+        return { ...file, _baseData: parsedBase };
+      });
+      
+      // Pre-calculate formulas for performance
+      preCalculateFormulas(mockFiles, parsedBase);
+    }
+    
     parseBase(baseContent);
   }
   
@@ -300,6 +531,24 @@
       }
       
       baseContent = template.yaml;
+      
+      // Parse the content to extract the base data
+      try {
+        const parsedTemplateBase = yaml.load(baseContent);
+        
+        // Attach base data to all files if we have a parsed base
+        if (parsedTemplateBase) {
+          mockFiles = mockFiles.map(file => {
+            return { ...file, _baseData: parsedTemplateBase };
+          });
+          
+          // Pre-calculate formulas for performance
+          preCalculateFormulas(mockFiles, parsedTemplateBase);
+        }
+      } catch (e) {
+        console.error("Error parsing template YAML:", e);
+      }
+      
       parseBase(baseContent);
       showTemplateSelector = false;
     }
