@@ -304,7 +304,7 @@
             } else if (op === ">") {
               passes = leftValue > numRightValue;
             } else if (op === "<=") {
-              passes = leftValue <= numRightValue;
+              passes = leftValue <= numRightValue; 
             } else if (op === "<") {
               passes = leftValue < numRightValue;
             }

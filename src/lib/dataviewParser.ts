@@ -41,29 +41,73 @@ export function parseDataviewTable(
       const fields = parseDataviewFields(tableMatch[1]);
       baseFile.display = {};
       const columnOrder: string[] = [];
+      const formulas: Record<string, string> = {};
 
       fields.forEach((field, index) => {
         let fieldName: string;
         let displayName: string;
+        let formulaKeyForYaml: string | null = null; // Key for the 'formulas' object
+        let rawFormulaExpression: string | null = null; // Expression before parsing
 
-        // Handle "as" aliases
-        if (field.includes(" as ")) {
-          const [fieldNamePart, alias] = field
-            .split(" as ")
-            .map((s) => s.trim());
-          fieldName = mapDataviewPropertyToBaseProperty(fieldNamePart);
-          displayName = alias.replace(/["']/g, "");
+        const trimmedField = field.trim();
+
+        // Attempt to match: (expression) as Alias
+        // Regex captures: 1: expression, 2: optional quote, 3: alias
+        const formulaWithAliasMatch = trimmedField.match(
+          /^\(\s*(.+?)\s*\)\s+[Aa][Ss]\s+(['"]?)(.+?)\2\s*$/
+        );
+        if (formulaWithAliasMatch) {
+          rawFormulaExpression = formulaWithAliasMatch[1].trim();
+          const alias = formulaWithAliasMatch[3].trim(); // Original alias for display name
+
+          displayName = alias;
+          // Use the alias, lowercased, as the key for the formulas object
+          // And as part of the fieldName for display/order
+          formulaKeyForYaml = alias.toLowerCase();
+          fieldName = `formula.${formulaKeyForYaml}`;
         } else {
-          fieldName = mapDataviewPropertyToBaseProperty(field);
-          displayName = getDisplayNameForProperty(fieldName);
+          // Attempt to match: (expression) - formula without alias
+          const formulaOnlyMatch = trimmedField.match(/^\(\s*(.+?)\s*\)\s*$/);
+          if (formulaOnlyMatch) {
+            rawFormulaExpression = formulaOnlyMatch[1].trim();
+            formulaKeyForYaml = `formula_${index}`; // Generic key
+            displayName = `Formula ${index + 1}`; // Generic display name
+            fieldName = `formula.${formulaKeyForYaml}`;
+          } else {
+            // Not a formula, attempt to match: FieldName as Alias
+            // Regex captures: 1: field name part, 2: optional quote, 3: alias
+            const fieldWithAliasMatch = trimmedField.match(
+              /(.+?)\s+[Aa][Ss]\s+(['"]?)(.+?)\2\s*$/
+            );
+            if (fieldWithAliasMatch) {
+              const fieldNamePart = fieldWithAliasMatch[1].trim();
+              const alias = fieldWithAliasMatch[3].trim();
+              fieldName = mapDataviewPropertyToBaseProperty(fieldNamePart);
+              displayName = alias;
+            } else {
+              // Simple field, no formula, no alias
+              fieldName = mapDataviewPropertyToBaseProperty(trimmedField);
+              displayName = getDisplayNameForProperty(fieldName);
+            }
+          }
         }
 
         baseFile.display[fieldName] = displayName;
         columnOrder.push(fieldName);
+
+        if (rawFormulaExpression !== null && formulaKeyForYaml !== null) {
+          formulas[formulaKeyForYaml] =
+            parseDataviewFormula(rawFormulaExpression);
+        }
       });
 
       // Set the order property to reflect column order in the TABLE clause
       baseFile.views[0].order = columnOrder;
+
+      // Add formulas to the base definition if any exist
+      if (Object.keys(formulas).length > 0) {
+        baseFile.formulas = formulas;
+      }
     }
 
     // Add FROM clause to filters
@@ -159,6 +203,11 @@ function mapDataviewPropertyToBaseProperty(prop: string): string {
     return propertyMap[prop];
   }
 
+  // Handle properties with hyphens by converting to underscores
+  if (prop.includes("-")) {
+    return prop.replace(/-/g, "_");
+  }
+
   // If not in the map, return as is
   return prop;
 }
@@ -187,24 +236,78 @@ function getDisplayNameForProperty(prop: string): string {
 }
 
 /**
+ * Parse a Dataview formula expression into a Bases formula expression
+ */
+function parseDataviewFormula(formula: string): string {
+  // For now, this does a straightforward conversion of property names
+  // and preserves the formula structure
+
+  // Replace property names with underscores instead of hyphens
+  let processedFormula = formula.replace(
+    /([a-zA-Z0-9_-]+)-([a-zA-Z0-9_-]+)/g,
+    (match, p1, p2) => {
+      return `${p1}_${p2}`;
+    }
+  );
+
+  // Handle any Dataview formula functions
+  const functionMap: Record<string, string> = {
+    round: "round",
+    floor: "floor",
+    ceil: "ceil",
+    min: "min",
+    max: "max",
+    sum: "sum",
+    avg: "average",
+    length: "length",
+    contains: "contains",
+    dateformat: "date_format",
+  };
+
+  for (const [dvFunc, basesFunc] of Object.entries(functionMap)) {
+    const regex = new RegExp(`\\b${dvFunc}\\(`, "g");
+    processedFormula = processedFormula.replace(regex, `${basesFunc}(`);
+  }
+
+  return processedFormula;
+}
+
+/**
  * Parse the fields from the TABLE clause
  */
 function parseDataviewFields(fieldsStr: string): string[] {
-  // Split by commas, but respect function calls with commas
+  // Split by commas, but respect function calls with commas and parenthesized expressions
   let fields = [];
   let currentField = "";
   let parenDepth = 0;
+  let inQuotes = false;
+  let quoteChar = "";
 
   for (let i = 0; i < fieldsStr.length; i++) {
     const char = fieldsStr[i];
 
-    if (char === "(") {
+    // Handle quoted strings
+    if (
+      (char === '"' || char === "'") &&
+      (i === 0 || fieldsStr[i - 1] !== "\\")
+    ) {
+      if (!inQuotes) {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (char === quoteChar) {
+        inQuotes = false;
+      }
+      currentField += char;
+      continue;
+    }
+
+    if (char === "(" && !inQuotes) {
       parenDepth++;
       currentField += char;
-    } else if (char === ")") {
+    } else if (char === ")" && !inQuotes) {
       parenDepth--;
       currentField += char;
-    } else if (char === "," && parenDepth === 0) {
+    } else if (char === "," && parenDepth === 0 && !inQuotes) {
       fields.push(currentField.trim());
       currentField = "";
     } else {
@@ -461,7 +564,6 @@ function parseSortFields(
     };
   });
 }
-
 /**
  * Example conversion from Dataview to Bases
  */
@@ -640,4 +742,93 @@ export function getNestedFilterExample(): string {
   };
 
   return yaml.dump(nestedExample);
+}
+
+/**
+ * Generate an example with formula fields
+ */
+export function getFormulaExample(): {
+  dataview: string;
+  bases: string;
+} {
+  const dataviewExample = `TABLE
+	pages-read AS "Pages Read",
+	total-pages AS "Total Pages",
+	file.mtime AS "Last Accessed",
+	(round((pages-read/total-pages)*100) + "%") AS Progress
+FROM #queue
+SORT file.mtime DESC`;
+
+  return {
+    dataview: dataviewExample,
+    bases: parseDataviewTable(dataviewExample, true),
+  };
+}
+
+/**
+ * Generate an example matching the expected format with formulas in a separate section
+ */
+export function getExpectedFormulaExample(): string {
+  const exampleYaml = {
+    filters: {
+      or: [
+        'tagged_with(file.file, "tag")',
+        {
+          and: [
+            'tagged_with(file.file, "book")',
+            'links_to(file.file, "Textbook")',
+          ],
+        },
+        {
+          not: [
+            'tagged_with(file.file, "book")',
+            'in_folder(file.file, "Required Reading")',
+          ],
+        },
+      ],
+    },
+    formulas: {
+      formatted_price: 'concat(price, " dollars")',
+      ppu: "price / age",
+    },
+    display: {
+      status: "Status",
+      "formula.formatted_price": "Price",
+      "file.ext": "Extension",
+    },
+    views: [
+      {
+        type: "table",
+        name: "My table",
+        limit: 10,
+        filters: {
+          and: [
+            'status != "done"',
+            {
+              or: ["formula.ppu > 5", "price > 2.1"],
+            },
+          ],
+        },
+        group_by: "status",
+        agg: "sum(price)",
+        order: [
+          "file.name",
+          "file.ext",
+          "property.age",
+          "formula.ppu",
+          "formula.formatted_price",
+        ],
+      },
+      {
+        type: "map",
+        name: "Example map",
+        filters: "has_coords == true",
+        lat: "lat",
+        long: "long",
+        title: "file.name",
+      },
+    ],
+  };
+
+  return yaml.dump(exampleYaml);
 }

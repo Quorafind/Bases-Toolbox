@@ -39,6 +39,13 @@ WHERE status != "completed"
 SORT priority DESC, due ASC`
     },
     {
+      name: "Formula Example",
+      query: `TABLE (round((pages-read/total-pages)*100) + "%") as Progress, priority, status, pages-read, total-pages, title
+FROM #books
+WHERE status != "completed"
+SORT priority DESC, status ASC`
+    },
+    {
       name: "Nested Conditions",
       query: `TABLE file.name, status, priority, tags, due
 FROM "projects"
