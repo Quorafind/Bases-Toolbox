@@ -318,6 +318,7 @@ sort:
   
   .converter-header h2 {
     margin-bottom: 5px;
+    margin-top: 0px;
     color: #50567a;
     font-size: 24px;
   }
