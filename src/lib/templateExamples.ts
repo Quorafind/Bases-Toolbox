@@ -7,10 +7,10 @@ export const baseTemplates = {
     name: "Basic Table",
     yaml: `filters:
   or:
-    - tagged_with(file.file, "book")
+    - taggedWith(file.file, "book")
     - and:
-        - tagged_with(file.file, "book")
-        - links_to(file.file, "Textbook")
+        - taggedWith(file.file, "book")
+        - linksTo(file.file, "Textbook")
 formulas:
   formatted_price: 'concat(price, " dollars")'
   ppu: "price / age"
@@ -40,9 +40,9 @@ views:
     name: "Book Library",
     yaml: `filters:
   and:
-    - tagged_with(file.file, "book")
+    - taggedWith(file.file, "book")
     - not:
-        - tagged_with(file.file, "textbook")
+        - taggedWith(file.file, "textbook")
 formulas:
   read_status: 'if(status == "Done", "Read", "Unread")'
   reading_time: 'wordCount / 250'
@@ -85,7 +85,7 @@ views:
     name: "Project Tracker",
     yaml: `filters:
   and:
-    - tagged_with(file.file, "project")
+    - taggedWith(file.file, "project")
 formulas:
   days_active: 'if(status == "In Progress", date_diff(now(), created) / 86400000, 0)'
   status_emoji: 'if(status == "Done", "✅", if(status == "In Progress", "🔄", if(status == "Backlog", "📌", "❓")))'
@@ -146,9 +146,9 @@ views:
     yaml: `filters:
   or:
     - category == "Project"
-    - tagged_with(file.file, "task")
+    - taggedWith(file.file, "task")
 formulas:
-  due_soon: 'if(created > date_modify(now(), "-7 days"), true, false)'
+  due_soon: 'if(created > dateModify(now(), "-7 days"), true, false)'
   priority_label: 'if(priority == 5, "Critical", if(priority == 4, "High", if(priority == 3, "Medium", if(priority == 2, "Low", "None"))))'
 display:
   status: "Status"
@@ -184,7 +184,7 @@ views:
   readingPlanner: {
     name: "Reading Planner",
     yaml: `filters:
-  tagged_with(file.file, "book")
+  taggedWith(file.file, "book")
 formulas:
   read_percentage: 'readingProgress'
   time_to_finish: 'if(readingProgress < 100, wordCount * (100 - readingProgress) / 100 / 250, 0)'

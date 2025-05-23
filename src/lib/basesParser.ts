@@ -55,7 +55,7 @@ export function getPropertyValue(file: any, propPath: string): any {
     propPath = propPath.substring(1, propPath.length - 1);
   }
 
-  // Special case for file.file - return the full file object for functions like tagged_with
+  // Special case for file.file - return the full file object for functions like taggedWith
   if (propPath === "file.file") {
     return file.file;
   }
@@ -595,9 +595,9 @@ function evaluateFunction(file: any, expression: string): boolean {
   const params = parseParameters(paramsStr);
   // Handle specific functions
   switch (functionName) {
-    case "tagged_with":
+    case "taggedWith":
       return evaluateTaggedWith(file, params);
-    case "links_to":
+    case "linksTo":
       return evaluateLinksTo(file, params);
     case "in_folder":
       return evaluateInFolder(file, params);
@@ -649,7 +649,7 @@ function parseParameters(paramsStr: string): string[] {
 }
 
 /**
- * Evaluate the tagged_with function
+ * Evaluate the taggedWith function
  */
 function evaluateTaggedWith(file: any, params: string[]): boolean {
   if (params.length < 2) return false;
@@ -671,7 +671,7 @@ function evaluateTaggedWith(file: any, params: string[]): boolean {
 }
 
 /**
- * Evaluate the links_to function
+ * Evaluate the linksTo function
  */
 function evaluateLinksTo(file: any, params: string[]): boolean {
   if (params.length < 2) return false;
@@ -796,7 +796,7 @@ function evaluateFilter(file: any, filter: any): boolean {
  * Evaluate a string expression against a file
  */
 function evaluateExpression(file: any, expression: string): boolean {
-  // Handle function expressions like tagged_with(file.file, "tag")
+  // Handle function expressions like taggedWith(file.file, "tag")
   if (expression.includes("(") && expression.includes(")")) {
     return evaluateFunction(file, expression);
   }

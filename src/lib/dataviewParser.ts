@@ -10,20 +10,20 @@ export function parseDataviewTable(
   try {
     // Extract the main parts of the dataview query
     const tableMatch = dataviewQuery.match(
-      /TABLE\s+(.+?)(?:\s+FROM|\s+SORT|\s+WHERE|\s+LIMIT|\s+GROUP BY|\s*$)/i
+      /TABLE\s+([\s\S]+?)(?:\s+FROM|\s+SORT|\s+WHERE|\s+LIMIT|\s+GROUP BY|\s*$)/i
     );
     const fromMatch = dataviewQuery.match(
-      /FROM\s+(.+?)(?:\s+SORT|\s+WHERE|\s+LIMIT|\s+GROUP BY|\s*$)/i
+      /FROM\s+([\s\S]+?)(?:\s+SORT|\s+WHERE|\s+LIMIT|\s+GROUP BY|\s*$)/i
     );
     const whereMatch = dataviewQuery.match(
-      /WHERE\s+(.+?)(?:\s+SORT|\s+LIMIT|\s+GROUP BY|\s*$)/i
+      /WHERE\s+([\s\S]+?)(?:\s+SORT|\s+LIMIT|\s+GROUP BY|\s*$)/i
     );
     const sortMatch = dataviewQuery.match(
-      /SORT\s+(.+?)(?:\s+WHERE|\s+LIMIT|\s+GROUP BY|\s*$)/i
+      /SORT\s+([\s\S]+?)(?:\s+WHERE|\s+LIMIT|\s+GROUP BY|\s*$)/i
     );
     const limitMatch = dataviewQuery.match(/LIMIT\s+(\d+)/i);
     const groupByMatch = dataviewQuery.match(
-      /GROUP BY\s+(.+?)(?:\s+SORT|\s+WHERE|\s+LIMIT|\s*$)/i
+      /GROUP BY\s+([\s\S]+?)(?:\s+SORT|\s+WHERE|\s+LIMIT|\s*$)/i
     );
 
     // Initialize the base structure
@@ -118,11 +118,15 @@ export function parseDataviewTable(
       if (fromValue.startsWith('"') && fromValue.endsWith('"')) {
         // Handle folder path
         const folderPath = fromValue.slice(1, -1);
-        filters = 'in_folder(file.file, "' + folderPath + '")';
+        if (!folderPath) {
+          filters = null;
+        } else {
+          filters = 'inFolder(file.file, "' + folderPath + '")';
+        }
       } else if (fromValue.startsWith("#")) {
         // Handle tag
         const tag = fromValue.substring(1);
-        filters = 'tagged_with(file.file, "' + tag + '")';
+        filters = 'taggedWith(file.file, "' + tag + '")';
       }
     }
 
@@ -186,6 +190,17 @@ export function parseDataviewTable(
 function mapDataviewPropertyToBaseProperty(prop: string): string {
   prop = prop.trim();
 
+  // Handle date property accessors like due.month, due.year, etc.
+  const dateAccessorMatch = prop.match(
+    /^(.+)\.(year|month|day|hour|minute|second)$/i
+  );
+  if (dateAccessorMatch) {
+    const [, propertyName, accessor] = dateAccessorMatch;
+    // Recursively map the property name in case it needs further transformation
+    const mappedPropertyName = mapDataviewPropertyToBaseProperty(propertyName);
+    return `${accessor.toLowerCase()}(${mappedPropertyName})`;
+  }
+
   // Handle common Dataview file property mappings
   const propertyMap: Record<string, string> = {
     "file.path": "file.path",
@@ -216,6 +231,17 @@ function mapDataviewPropertyToBaseProperty(prop: string): string {
  * Get a human-readable display name for a property
  */
 function getDisplayNameForProperty(prop: string): string {
+  // Handle date functions like month(due), year(due)
+  const dateFunctionMatch = prop.match(
+    /^(year|month|day|hour|minute|second)\((.+)\)$/i
+  );
+  if (dateFunctionMatch) {
+    const [, func, property] = dateFunctionMatch;
+    const funcName = func.charAt(0).toUpperCase() + func.slice(1).toLowerCase();
+    const propName = getDisplayNameForProperty(property);
+    return `${funcName} of ${propName}`;
+  }
+
   // Handle file properties
   if (prop.startsWith("file.")) {
     const displayMap: Record<string, string> = {
@@ -239,37 +265,200 @@ function getDisplayNameForProperty(prop: string): string {
  * Parse a Dataview formula expression into a Bases formula expression
  */
 function parseDataviewFormula(formula: string): string {
-  // For now, this does a straightforward conversion of property names
-  // and preserves the formula structure
-
-  // Replace property names with underscores instead of hyphens
+  // 1. Replace property names with hyphens to use underscores.
+  // e.g., "pages-read" becomes "pages_read"
   let processedFormula = formula.replace(
-    /([a-zA-Z0-9_-]+)-([a-zA-Z0-9_-]+)/g,
+    /([a-zA-Z0-9_]+)-([a-zA-Z0-9_]+)/g,
     (match, p1, p2) => {
       return `${p1}_${p2}`;
     }
   );
 
-  // Handle any Dataview formula functions
-  const functionMap: Record<string, string> = {
-    round: "round",
-    floor: "floor",
-    ceil: "ceil",
-    min: "min",
-    max: "max",
-    sum: "sum",
-    avg: "average",
-    length: "length",
-    contains: "contains",
-    dateformat: "date_format",
-  };
+  // Handle date property accessors like now().year, due.month before processing date functions
+  // This needs to be done before processDataviewDateFunctions to avoid conflicts
+  processedFormula = processedFormula.replace(
+    /(\w+(?:\(\s*[^)]*\s*\))?|\w+(?:\.\w+)*)\.(year|month|day|hour|minute|second)\b/gi,
+    (match, expr, accessor) => {
+      // Recursively process the expression part in case it needs mapping
+      const mappedExpr = mapDataviewPropertyToBaseProperty(expr);
+      return `${accessor.toLowerCase()}(${mappedExpr})`;
+    }
+  );
 
-  for (const [dvFunc, basesFunc] of Object.entries(functionMap)) {
-    const regex = new RegExp(`\\b${dvFunc}\\(`, "g");
-    processedFormula = processedFormula.replace(regex, `${basesFunc}(`);
+  // Process date functions before other operations
+  processedFormula = processDataviewDateFunctions(processedFormula);
+
+  // 2. Handle Dataview string concatenation: expression + "string_literal" or expression + 'string_literal'
+  //    This is converted to Bases `join("", expression, "string_literal_content")`.
+  //    Regex matches: (expression_part) + ("literal_part" or 'literal_part') at the end of the string.
+  //    Group 1: expression_part
+  //    Group 2: quote type (' or ")
+  //    Group 3: literal_part (content of the string, without the quotes)
+  const concatenationMatch = processedFormula.match(
+    /^(.*)\s*\+\s*(["'])(.*?)\2\s*$/
+  );
+
+  if (concatenationMatch) {
+    const expressionPart = concatenationMatch[1].trim();
+    const stringLiteralContent = concatenationMatch[3];
+
+    // Recursively process the expression part first
+    const processedExpressionPart = parseDataviewFormula(expressionPart);
+
+    // Construct the join function call, ensuring the string literal is properly quoted.
+    processedFormula = `join("", ${processedExpressionPart}, "${stringLiteralContent.replace(
+      /"/g,
+      '\\\\"'
+    )}")`;
+  } else {
+    // 3. If no top-level string concatenation of the specific form `expr + "literal"`,
+    //    then proceed to map Dataview functions to Bases functions.
+    const functionMap: Record<string, string> = {
+      round: "round",
+      floor: "floor",
+      ceil: "ceil",
+      min: "min",
+      max: "max",
+      sum: "sum", // Assuming Dataview 'sum' maps to Bases 'sum'
+      avg: "average", // Dataview 'avg' to Bases 'average'
+      length: "len", // Dataview 'length' to Bases 'len'
+      contains: "contains", // Dataview 'contains' maps to Bases 'contains'
+      dateformat: "dateFormat", // Dataview 'dateformat' to Bases 'dateFormat'
+
+      // Date functions from function.md
+      now: "now",
+      dateModify: "dateModify",
+      date_diff: "dateDiff",
+      date_equals: "dateEquals",
+      date_not_equals: "dateNotEquals",
+      date_before: "dateBefore",
+      date_after: "dateAfter",
+      date_on_or_before: "dateOnOrBefore",
+      date_on_or_after: "dateOnOrAfter",
+      year: "year",
+      month: "month",
+      day: "day",
+      hour: "hour",
+      minute: "minute",
+      second: "second",
+      // Other functions from function.md could be added here if needed.
+    };
+
+    for (const [dvFunc, basesFunc] of Object.entries(functionMap)) {
+      // Match the function name as a whole word, followed by an optional space and an opening parenthesis.
+      // Case-insensitive match for the Dataview function name ('i' flag).
+      // Global match ('g' flag) to replace all occurrences.
+      const regex = new RegExp(`\\b${dvFunc}\\s*\\(`, "gi");
+      processedFormula = processedFormula.replace(regex, `${basesFunc}(`);
+    }
   }
 
+  // Ensure operators +, *, / are surrounded by single spaces.
+  // Step 1: Remove existing spaces around operators +, *, / and collapse them with the operator.
+  processedFormula = processedFormula.replace(/\s*([+*/-])\s*/g, "$1");
+  // Step 2: Add a single space before and after each operator +, *, /.
+  processedFormula = processedFormula.replace(/([+*/-])/g, " $1 ");
+  // Step 3: Normalize multiple consecutive spaces into a single space.
+  processedFormula = processedFormula.replace(/\s\s+/g, " ");
+
   return processedFormula;
+}
+
+/**
+ * Process Dataview date functions and convert them to Bases date functions
+ */
+function processDataviewDateFunctions(formula: string): string {
+  // Process date(today) pattern to now()
+  formula = formula.replace(/date\s*\(\s*today\s*\)/gi, "now()");
+
+  // Process date(tomorrow) pattern to dateModify(now(), "1 day")
+  formula = formula.replace(
+    /date\s*\(\s*tomorrow\s*\)/gi,
+    'dateModify(now(), "1 day")'
+  );
+
+  // Process date(yesterday) pattern to dateModify(now(), "-1 day")
+  formula = formula.replace(
+    /date\s*\(\s*yesterday\s*\)/gi,
+    'dateModify(now(), "-1 day")'
+  );
+
+  // Process date() function calls with other arguments
+  formula = formula.replace(/date\s*\(\s*([^)]+)\s*\)/gi, (match, arg) => {
+    // If the argument is a string or variable, just return it as is
+    if (
+      arg.trim().startsWith('"') ||
+      arg.trim().startsWith("'") ||
+      /^[a-zA-Z0-9_.]+$/.test(arg.trim())
+    ) {
+      return arg.trim();
+    }
+    // Otherwise, keep the original format for now
+    return match;
+  });
+
+  // Process dur() function calls and convert to Bases duration format
+  // e.g., dur(7 days) becomes "7 days"
+  // Convert weeks to days (2 weeks = 14 days)
+  formula = formula.replace(
+    /dur\s*\(\s*(\d+)\s*([a-zA-Z]+)\s*\)/gi,
+    (match, number, unit) => {
+      // Convert weeks to days
+      if (unit.toLowerCase().startsWith("week")) {
+        const days = parseInt(number) * 7;
+        return `"${days} days"`;
+      }
+
+      // Make sure the unit is properly formatted (singular for 1, plural for others)
+      const unitStr =
+        number === "1" ? unit.replace(/s$/, "") : unit.replace(/s$/, "") + "s";
+      return `"${number} ${unitStr}"`;
+    }
+  );
+
+  // Process expressions like now() + "7 days" or now() + "7 days"
+  // This regex matches patterns like variable/function + duration or variable/function - duration
+  formula = formula.replace(
+    /(now\(\)|\w+(?:\.\w+)*)\s*([+-])\s*"(\d+\s+[a-zA-Z]+)"/gi,
+    (match, expr, operator, duration) => {
+      // Convert weeks to days in duration string
+      if (duration.toLowerCase().includes("week")) {
+        const parts = duration.match(/(\d+)\s+([a-zA-Z]+)/i);
+        if (parts) {
+          const num = parseInt(parts[1]);
+          const days = num * 7;
+          duration = `${days} days`;
+        }
+      }
+
+      // For subtraction, make the duration negative
+      const sign = operator === "-" ? "-" : "";
+      return `dateModify(${expr}, "${sign}${duration}")`;
+    }
+  );
+
+  // Process date math expressions: something + dur(...) or something - dur(...)
+  // This regex looks for a pattern like: expression + dur(...) or expression - dur(...)
+  formula = formula.replace(
+    /(\w+(?:\(\s*[^)]*\s*\))?|\w+(?:\.\w+)*)\s*([+-])\s*dur\s*\(\s*(\d+)\s*([a-zA-Z]+)\s*\)/gi,
+    (match, expr, operator, number, unit) => {
+      // Convert weeks to days
+      if (unit.toLowerCase().startsWith("week")) {
+        const days = parseInt(number) * 7;
+        unit = "day";
+        number = days.toString();
+      }
+
+      // Make sure the unit is properly formatted
+      const unitStr =
+        number === "1" ? unit.replace(/s$/, "") : unit.replace(/s$/, "") + "s";
+      // If subtraction, make the number negative
+      const sign = operator === "-" ? "-" : "";
+      return `dateModify(${expr}, "${sign}${number} ${unitStr}")`;
+    }
+  );
+
+  return formula;
 }
 
 /**
@@ -325,57 +514,100 @@ function parseDataviewFields(fieldsStr: string): string[] {
 /**
  * Parse the WHERE clause into a filters object
  */
-function parseDataviewFilters(whereStr: string): any {
-  // Check for parentheses which might indicate nested conditions
-  if (whereStr.includes("(") && !whereStr.match(/^[a-zA-Z0-9_.]+\(/)) {
-    return parseNestedConditions(whereStr);
-  }
-
-  // Basic parsing for simple conditions
-  if (whereStr.toLowerCase().includes(" and ")) {
-    return {
-      and: whereStr
-        .split(/ and /i)
-        .map((cond) => cond.trim())
-        .map(parseCondition),
-    };
-  } else if (whereStr.toLowerCase().includes(" or ")) {
-    return {
-      or: whereStr
-        .split(/ or /i)
-        .map((cond) => cond.trim())
-        .map(parseCondition),
-    };
-  } else {
+function parseDataviewFilters(whereStr: string, depth: number = 0): any {
+  // Prevent infinite recursion by limiting depth
+  if (depth > 10) {
+    console.warn("Maximum recursion depth reached in parseDataviewFilters");
     return parseCondition(whereStr);
   }
+
+  // Normalize whitespace and remove line breaks to handle multi-line conditions
+  whereStr = whereStr.replace(/\s+/g, " ").trim();
+
+  // Check for parentheses which might indicate nested conditions
+  if (whereStr.includes("(") && !whereStr.match(/^[a-zA-Z0-9_.]+\(/)) {
+    return parseNestedConditions(whereStr, depth + 1);
+  }
+
+  // Use the more robust splitting function for AND/OR operations
+  if (/ and /i.test(whereStr)) {
+    const parts = splitRespectingParentheses(whereStr, / and /i);
+    if (parts.length > 1) {
+      return {
+        and: parts.map((part) => parseDataviewFilters(part.trim(), depth + 1)),
+      };
+    }
+  }
+
+  if (/ or /i.test(whereStr)) {
+    const parts = splitRespectingParentheses(whereStr, / or /i);
+    if (parts.length > 1) {
+      return {
+        or: parts.map((part) => parseDataviewFilters(part.trim(), depth + 1)),
+      };
+    }
+  }
+
+  // If no logical operators found, it's a simple condition
+  return parseCondition(whereStr);
 }
 
 /**
  * Parse potentially nested conditions with parentheses
  */
-function parseNestedConditions(condition: string): any {
-  // This is a simplified approach - a full parser would be more complex
+function parseNestedConditions(condition: string, depth: number = 0): any {
+  // Prevent infinite recursion by limiting depth
+  if (depth > 10) {
+    console.warn("Maximum recursion depth reached in parseNestedConditions");
+    return parseCondition(condition);
+  }
+
+  // Normalize whitespace
+  condition = condition.replace(/\s+/g, " ").trim();
 
   // First, handle simple cases where there's just one level of nesting
   if (condition.startsWith("(") && condition.endsWith(")")) {
-    // Remove outer parentheses and parse the inner content
-    return parseDataviewFilters(condition.substring(1, condition.length - 1));
+    // Check if the entire condition is wrapped in parentheses
+    let parenCount = 0;
+    let isFullyWrapped = true;
+
+    for (let i = 0; i < condition.length; i++) {
+      if (condition[i] === "(") parenCount++;
+      else if (condition[i] === ")") parenCount--;
+
+      // If parentheses close before the end, it's not fully wrapped
+      if (parenCount === 0 && i < condition.length - 1) {
+        isFullyWrapped = false;
+        break;
+      }
+    }
+
+    if (isFullyWrapped) {
+      // Remove outer parentheses and parse the inner content
+      return parseDataviewFilters(
+        condition.substring(1, condition.length - 1),
+        depth + 1
+      );
+    }
   }
 
-  // For more complex nested expressions
+  // For more complex nested expressions, use the robust splitting function
   if (/ and /i.test(condition)) {
-    // Split by AND at the top level (respecting parentheses)
     const parts = splitRespectingParentheses(condition, / and /i);
-    return {
-      and: parts.map((part) => parseDataviewFilters(part.trim())),
-    };
-  } else if (/ or /i.test(condition)) {
-    // Split by OR at the top level (respecting parentheses)
+    if (parts.length > 1) {
+      return {
+        and: parts.map((part) => parseDataviewFilters(part.trim(), depth + 1)),
+      };
+    }
+  }
+
+  if (/ or /i.test(condition)) {
     const parts = splitRespectingParentheses(condition, / or /i);
-    return {
-      or: parts.map((part) => parseDataviewFilters(part.trim())),
-    };
+    if (parts.length > 1) {
+      return {
+        or: parts.map((part) => parseDataviewFilters(part.trim(), depth + 1)),
+      };
+    }
   }
 
   // If no logical operators at the top level, then it's a simple condition
@@ -389,65 +621,125 @@ function splitRespectingParentheses(str: string, pattern: RegExp): string[] {
   const result: string[] = [];
   let currentPart = "";
   let parenDepth = 0;
+  let inQuotes = false;
+  let quoteChar = "";
   let i = 0;
 
   while (i < str.length) {
-    // Check if we have a potential operator match at current position
-    const restOfString = str.substring(i);
-    const match = restOfString.match(pattern);
+    const char = str[i];
 
-    if (match && match.index === 0 && parenDepth === 0) {
-      // We found an operator at the top level
-      if (currentPart.trim()) {
-        result.push(currentPart.trim());
+    // Handle quoted strings
+    if ((char === '"' || char === "'") && (i === 0 || str[i - 1] !== "\\")) {
+      if (!inQuotes) {
+        inQuotes = true;
+        quoteChar = char;
+      } else if (char === quoteChar) {
+        inQuotes = false;
       }
-      currentPart = "";
-      i += match[0].length;
-    } else {
-      // Normal character or nested
-      const char = str[i];
-      if (char === "(") parenDepth++;
-      else if (char === ")") parenDepth--;
-
       currentPart += char;
       i++;
+      continue;
     }
+
+    // Track parentheses depth only when not in quotes
+    if (!inQuotes) {
+      if (char === "(") {
+        parenDepth++;
+      } else if (char === ")") {
+        parenDepth--;
+      }
+    }
+
+    // Check if we have a potential operator match at current position
+    if (!inQuotes && parenDepth === 0) {
+      const restOfString = str.substring(i);
+      const match = restOfString.match(pattern);
+
+      if (match && match.index === 0) {
+        // We found an operator at the top level
+        if (currentPart.trim()) {
+          result.push(currentPart.trim());
+        }
+        currentPart = "";
+        i += match[0].length;
+        continue;
+      }
+    }
+
+    // Normal character
+    currentPart += char;
+    i++;
   }
 
   if (currentPart.trim()) {
     result.push(currentPart.trim());
   }
 
-  return result;
+  return result.length > 1 ? result : [str];
 }
 
 /**
  * Parse an individual condition
  */
 function parseCondition(condition: string): any {
+  // Process date functions in the condition before handling operators
+  condition = processDataviewDateFunctions(condition);
+
+  console.log("condition", condition);
+
+  // Handle function calls first (like contains, startswith, etc.) before handling operators
+  // This prevents misinterpreting function arguments as separate conditions
+  const functionPattern =
+    /^(contains|not_contains|contains_any|contains_all|startswith|endswith|empty|not_empty|dateEquals|dateNotEquals|dateBefore|dateAfter|dateOnOrBefore|dateOnOrAfter)\s*\(/i;
+  const functionMatch = condition.match(functionPattern);
+
+  if (functionMatch) {
+    const funcName = functionMatch[1].toLowerCase();
+
+    // Extract the function arguments
+    const argsStart = condition.indexOf("(") + 1;
+    const argsEnd = condition.lastIndexOf(")");
+
+    if (argsEnd > argsStart) {
+      const argsStr = condition.substring(argsStart, argsEnd);
+      const args = parseDataviewFields(argsStr); // Reuse the field parsing logic to handle commas properly
+
+      if (args.length >= 1) {
+        const mappedArgs = args.map((arg) => {
+          // Map property names to Bases format
+          const trimmedArg = arg.trim();
+          if (
+            !trimmedArg.startsWith('"') &&
+            !trimmedArg.startsWith("'") &&
+            !trimmedArg.match(/^\d/)
+          ) {
+            return mapDataviewPropertyToBaseProperty(trimmedArg);
+          }
+          return trimmedArg;
+        });
+
+        // Special handling for contains with tags
+        if (funcName === "contains" && mappedArgs.length === 2) {
+          const [left, right] = mappedArgs;
+          if (left.trim().toLowerCase() === "tags") {
+            // Extract the tag value from the right side
+            const tagMatch = right.trim().match(/^["'](.+)["']$/);
+            if (tagMatch) {
+              return `taggedWith(file.file, "${tagMatch[1]}")`;
+            }
+          }
+        }
+
+        return `${funcName}(${mappedArgs.join(", ")})`;
+      }
+    }
+
+    // If we couldn't parse the function properly, fall back to the original
+    return condition;
+  }
+
   // Handle common comparison operators
-  const operators = [
-    "!=",
-    ">=",
-    "<=",
-    "=",
-    ">",
-    "<",
-    "contains",
-    "not_contains",
-    "contains_any",
-    "contains_all",
-    "startswith",
-    "endswith",
-    "empty",
-    "not_empty",
-    "date_equals",
-    "date_not_equals",
-    "date_before",
-    "date_after",
-    "date_on_or_before",
-    "date_on_or_after",
-  ];
+  const operators = ["!=", ">=", "<=", "=", ">", "<"];
 
   for (const op of operators) {
     if (condition.includes(op)) {
@@ -456,37 +748,25 @@ function parseCondition(condition: string): any {
       if (parts.length === 2) {
         let [left, right] = parts;
 
+        console.log("left", left);
+        console.log("right", right);
+
         // Map property names to Bases format
         left = mapDataviewPropertyToBaseProperty(left);
 
+        // Also map the right side if it's not a literal value
+        const rightTrimmed = right.trim();
+        if (
+          !rightTrimmed.startsWith('"') &&
+          !rightTrimmed.startsWith("'") &&
+          !rightTrimmed.match(/^\d+$/) &&
+          !rightTrimmed.match(/^true$|^false$/i)
+        ) {
+          right = mapDataviewPropertyToBaseProperty(right);
+        }
+
         // Convert Dataview operators to Bases format
         if (op === "=") return `${left.trim()} == ${right.trim()}`;
-        if (op === "contains")
-          return `contains(${left.trim()}, ${right.trim()})`;
-        if (op === "not_contains")
-          return `not_contains(${left.trim()}, ${right.trim()})`;
-        if (op === "contains_any")
-          return `contains_any(${left.trim()}, ${right.trim()})`;
-        if (op === "contains_all")
-          return `contains_all(${left.trim()}, ${right.trim()})`;
-        if (op === "startswith")
-          return `startswith(${left.trim()}, ${right.trim()})`;
-        if (op === "endswith")
-          return `endswith(${left.trim()}, ${right.trim()})`;
-        if (op === "empty") return `empty(${left.trim()})`;
-        if (op === "not_empty") return `not_empty(${left.trim()})`;
-        if (op === "date_equals")
-          return `date_equals(${left.trim()}, ${right.trim()})`;
-        if (op === "date_not_equals")
-          return `date_not_equals(${left.trim()}, ${right.trim()})`;
-        if (op === "date_before")
-          return `date_before(${left.trim()}, ${right.trim()})`;
-        if (op === "date_after")
-          return `date_after(${left.trim()}, ${right.trim()})`;
-        if (op === "date_on_or_before")
-          return `date_on_or_before(${left.trim()}, ${right.trim()})`;
-        if (op === "date_on_or_after")
-          return `date_on_or_after(${left.trim()}, ${right.trim()})`;
 
         return `${left.trim()} ${op} ${right.trim()}`;
       }
@@ -497,15 +777,15 @@ function parseCondition(condition: string): any {
   if (condition.includes("file.tags")) {
     const tagMatch = condition.match(/file\.tags\.includes\("([^"]+)"\)/);
     if (tagMatch) {
-      return `tagged_with(file.file, "${tagMatch[1]}")`;
+      return `taggedWith(file.file, "${tagMatch[1]}")`;
     }
   }
 
-  // Handle links_to function
+  // Handle linksTo function
   if (condition.includes("links")) {
     const linksMatch = condition.match(/links\s*\(\s*"([^"]+)"\s*\)/i);
     if (linksMatch) {
-      return `links_to(file.file, "${linksMatch[1]}")`;
+      return `linksTo(file.file, "${linksMatch[1]}")`;
     }
   }
 
@@ -563,272 +843,4 @@ function parseSortFields(
       direction: direction,
     };
   });
-}
-/**
- * Example conversion from Dataview to Bases
- */
-export function getExampleDataviewConversion(): {
-  dataview: string;
-  bases: string;
-  basesWithGlobalFilters: string;
-} {
-  const dataviewExample = `TABLE file.name, file.ctime as "Created", file.mtime as "Modified", rating, category
-FROM "projects"
-WHERE rating >= 4 AND category = "active"
-SORT rating DESC
-LIMIT 20`;
-
-  return {
-    dataview: dataviewExample,
-    bases: parseDataviewTable(dataviewExample, true), // Filters in view
-    basesWithGlobalFilters: parseDataviewTable(dataviewExample, false), // Global filters
-  };
-}
-
-/**
- * Generate an example with complex filters in views
- */
-export function getComplexFilterExample(): string {
-  const complexExample = {
-    display: {
-      "file.mtime": "Time",
-      "file.name": "Name",
-      priority: "Priority",
-      status: "Status",
-    },
-    views: [
-      {
-        type: "table",
-        name: "Default view",
-        filters: {
-          and: [
-            'contains(file.path, "_Work")',
-            'date_before(file.ctime, "2025-05-22T09:24:00")',
-          ],
-        },
-        // Order determines the column display order in the table
-        order: ["priority", "status", "file.name", "file.mtime"],
-        // Sort determines how data is sorted
-        sort: [
-          {
-            column: "priority",
-            direction: "DESC",
-          },
-          {
-            column: "file.mtime",
-            direction: "DESC",
-          },
-        ],
-      },
-    ],
-  };
-
-  return yaml.dump(complexExample);
-}
-
-/**
- * Generate an example with complex global filters
- */
-export function getComplexGlobalFilterExample(): string {
-  const complexExample = {
-    display: {
-      "file.mtime": "Time",
-      "file.name": "Name",
-      category: "Category",
-    },
-    filters: {
-      and: [
-        'contains(file.path, "_Work")',
-        'date_before(file.ctime, "2025-05-22T09:24:00")',
-      ],
-    },
-    views: [
-      {
-        type: "table",
-        name: "Default view",
-        // Order of columns in the table
-        order: ["category", "file.name", "file.mtime"],
-        // How data is sorted
-        sort: [
-          {
-            column: "category",
-            direction: "ASC",
-          },
-          {
-            column: "file.name",
-            direction: "ASC",
-          },
-        ],
-      },
-    ],
-  };
-
-  return yaml.dump(complexExample);
-}
-
-/**
- * Generate an example with nested filter groups
- */
-export function getNestedFilterExample(): string {
-  const nestedExample = {
-    display: {
-      "file.mtime": "Time",
-      "file.name": "Name",
-      status: "Status",
-      priority: "Priority",
-    },
-    views: [
-      {
-        type: "table",
-        name: "Complex Filters",
-        filters: {
-          and: [
-            'contains(file.path, "_Work")',
-            'date_before(file.ctime, "2025-05-22T09:24:00")',
-            {
-              and: ["file.size > 2000", "not_empty(status)"],
-            },
-            {
-              or: [
-                "priority > 3",
-                {
-                  and: [
-                    'status == "in-progress"',
-                    'tagged_with(file.file, "urgent")',
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-        // Order defines column arrangement in the table
-        order: ["status", "priority", "file.name", "file.mtime"],
-        // Sort defines how the data is sorted
-        sort: [
-          {
-            column: "priority",
-            direction: "DESC",
-          },
-          {
-            column: "file.name",
-            direction: "ASC",
-          },
-        ],
-      },
-      {
-        type: "table",
-        name: "Alternative View",
-        filters: {
-          or: [
-            'contains(file.name, "report")',
-            {
-              and: [
-                'date_after(file.mtime, "2023-01-01")',
-                'links_to(file.file, "projects/index.md")',
-              ],
-            },
-          ],
-        },
-        // Different column order for this view
-        order: ["file.name", "file.mtime", "status", "priority"],
-        sort: [
-          {
-            column: "file.mtime",
-            direction: "DESC",
-          },
-        ],
-      },
-    ],
-  };
-
-  return yaml.dump(nestedExample);
-}
-
-/**
- * Generate an example with formula fields
- */
-export function getFormulaExample(): {
-  dataview: string;
-  bases: string;
-} {
-  const dataviewExample = `TABLE
-	pages-read AS "Pages Read",
-	total-pages AS "Total Pages",
-	file.mtime AS "Last Accessed",
-	(round((pages-read/total-pages)*100) + "%") AS Progress
-FROM #queue
-SORT file.mtime DESC`;
-
-  return {
-    dataview: dataviewExample,
-    bases: parseDataviewTable(dataviewExample, true),
-  };
-}
-
-/**
- * Generate an example matching the expected format with formulas in a separate section
- */
-export function getExpectedFormulaExample(): string {
-  const exampleYaml = {
-    filters: {
-      or: [
-        'tagged_with(file.file, "tag")',
-        {
-          and: [
-            'tagged_with(file.file, "book")',
-            'links_to(file.file, "Textbook")',
-          ],
-        },
-        {
-          not: [
-            'tagged_with(file.file, "book")',
-            'in_folder(file.file, "Required Reading")',
-          ],
-        },
-      ],
-    },
-    formulas: {
-      formatted_price: 'concat(price, " dollars")',
-      ppu: "price / age",
-    },
-    display: {
-      status: "Status",
-      "formula.formatted_price": "Price",
-      "file.ext": "Extension",
-    },
-    views: [
-      {
-        type: "table",
-        name: "My table",
-        limit: 10,
-        filters: {
-          and: [
-            'status != "done"',
-            {
-              or: ["formula.ppu > 5", "price > 2.1"],
-            },
-          ],
-        },
-        group_by: "status",
-        agg: "sum(price)",
-        order: [
-          "file.name",
-          "file.ext",
-          "property.age",
-          "formula.ppu",
-          "formula.formatted_price",
-        ],
-      },
-      {
-        type: "map",
-        name: "Example map",
-        filters: "has_coords == true",
-        lat: "lat",
-        long: "long",
-        title: "file.name",
-      },
-    ],
-  };
-
-  return yaml.dump(exampleYaml);
 }

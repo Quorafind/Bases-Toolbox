@@ -188,7 +188,7 @@
     // This is a simplified version - in a real implementation,
     // you would need to adapt the full expression evaluation with detailed reasons
     try {
-      // Handle function expressions like tagged_with(file.file, "tag")
+      // Handle function expressions like taggedWith(file.file, "tag")
       if (expression.includes("(") && expression.includes(")")) {
         const match = expression.match(/(\w+)\((.*)\)/);
         if (!match) {
@@ -205,15 +205,15 @@
         let passes = false;
         
         // Handle specific function types
-        if (functionName === 'tagged_with') {
-          // Special handling for tagged_with
+        if (functionName === 'taggedWith') {
+          // Special handling for taggedWith
           const fileObj = file.file;
           if (fileObj && fileObj.tags && Array.isArray(fileObj.tags)) {
             passes = fileObj.tags.includes(checkValue);
           }
           console.log(passes);
-        } else if (functionName === 'links_to') {
-          // Special handling for links_to
+        } else if (functionName === 'linksTo') {
+          // Special handling for linksTo
           const fileObj = file.file;
           if (fileObj && fileObj.links && Array.isArray(fileObj.links)) {
             passes = fileObj.links.includes(checkValue);

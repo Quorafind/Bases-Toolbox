@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { parseDataviewTable, getExampleDataviewConversion, getComplexFilterExample, getComplexGlobalFilterExample, getNestedFilterExample } from './dataviewParser';
+  import { parseDataviewTable } from './dataviewParser';
   
   let dataviewQuery = '';
   let basesYaml = '';
@@ -53,6 +53,48 @@ WHERE (status = "in-progress" OR status = "planning") AND
       (priority >= 3 OR (contains(tags, "urgent") AND due < date(2023-12-31)))
 SORT priority DESC, due ASC
 LIMIT 30`
+    },
+    {
+      name: "Upcoming Deadlines (Next 7 Days)",
+      query: `TABLE file.name as "Task", due, project
+FROM "tasks"
+WHERE due >= date(today) AND due <= date(today) + dur(7 days)
+SORT due ASC`
+    },
+    {
+      name: "Overdue Tasks",
+      query: `TABLE file.name as "Task", due, project, status
+FROM "tasks"
+WHERE due < date(today) AND status != "completed"
+SORT due ASC`
+    },
+    {
+      name: "Files Modified Last Week",
+      query: `TABLE file.name, file.mtime as "Modified"
+FROM ""
+WHERE file.mtime >= date(today) - dur(1 week) AND file.mtime < date(today)
+SORT file.mtime DESC`
+    },
+    {
+      name: "Age of Note (Formula)",
+      query: `TABLE file.name, (date(today) - file.ctime) as "Age"
+FROM "notes"
+WHERE file.ctime < date(today) - dur(30 days)
+SORT file.ctime ASC`
+    },
+    {
+      name: "Days Until Deadline (Formula)",
+      query: `TABLE file.name as "Task", due, (due - date(today)) as "Days Remaining"
+FROM "tasks"
+WHERE status != "completed" AND due > date(today)
+SORT due ASC`
+    },
+    {
+      name: "Tasks Due This Month (Formula)",
+      query: `TABLE file.name as "Task", due
+FROM "tasks"
+WHERE due.month = date(today).month AND due.year = date(today).year AND status != "completed"
+SORT due ASC`
     }
   ];
 
@@ -69,13 +111,6 @@ LIMIT 30`
       error = e instanceof Error ? e.message : String(e);
       basesYaml = '';
     }
-  }
-  
-  function loadExample() {
-    const example = getExampleDataviewConversion();
-    dataviewQuery = example.dataview;
-    basesYaml = placeFiltersInView ? example.bases : example.basesWithGlobalFilters;
-    error = null;
   }
   
   function loadCustomExample(example: typeof examples[0]) {
@@ -112,21 +147,6 @@ LIMIT 30`
   function toggleExamples() {
     showExamples = !showExamples;
     if (showExamples) showBasesExample = false;
-  }
-  
-  function toggleBasesExample() {
-    showBasesExample = !showBasesExample;
-    if (showBasesExample) showExamples = false;
-  }
-  
-  function loadComplexFilterExample() {
-    basesYaml = placeFiltersInView ? getComplexFilterExample() : getComplexGlobalFilterExample();
-    showBasesExample = false;
-  }
-  
-  function loadNestedFilterExample() {
-    basesYaml = getNestedFilterExample();
-    showBasesExample = false;
   }
 </script>
 
@@ -280,7 +300,7 @@ sort:
             <li><code>not_empty()</code></li>
             <li><code>if()</code></li>
             <li><code>in_folder()</code></li>
-            <li><code>links_to()</code></li>
+            <li><code>linksTo()</code></li>
             <li><code>not()</code></li>
             <li><code>tag()</code></li>
             <li><code>date_before()</code></li>
@@ -289,7 +309,7 @@ sort:
             <li><code>date_not_equals()</code></li>
             <li><code>date_on_or_before()</code></li>
             <li><code>date_on_or_after()</code></li>
-            <li><code>tagged_with()</code></li>
+            <li><code>taggedWith()</code></li>
           </ul>
           
           <h4>File Properties</h4>
@@ -380,6 +400,8 @@ sort:
     z-index: 10;
     min-width: 220px;
     margin-top: 5px;
+    overflow-y: auto;
+    max-height: 300px;
   }
   
   .example-option {

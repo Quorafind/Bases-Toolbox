@@ -48,12 +48,12 @@ Functions are used in [[Introduction to Bases|Bases]] to manipulate data from [[
 - The first argument should always be `file.file`.
 - The second argument is the folder path to test against.
 
-#### `links_to()`
+#### `linksTo()`
 
-- `links_to(file.file, path)` returns true for all notes which have a link to the specified note.
+- `linksTo(file.file, path)` returns true for all notes which have a link to the specified note.
 - The first argument should always be `file.file`.
 - The second argument is the file path to test against.
-- In a Base file in a sidebar you can replicate the backlink pane functionality with the following filter: `links_to(file.file, this.file.path)`.
+- In a Base file in a sidebar you can replicate the backlink pane functionality with the following filter: `linksTo(file.file, this.file.path)`.
 
 #### `not()`
 
@@ -99,9 +99,9 @@ For all date functions, `datetime` denotes a text value in the format `YYYY-MM-D
 
 - `now()` retrieves a datetime at the moment of formula evaluation.
 
-#### `date_modify()`
+#### `dateModify()`
 
-- `date_modify(datetime, duration)` retrieves a datetime modified by the provided duration.
+- `dateModify(datetime, duration)` retrieves a datetime modified by the provided duration.
 - `duration` may be a number of milliseconds (`1 minute` is equivalent to `60000`)
 - `duration` may be a text value such as `2h`, `2 hour`, `2 hours`, `-2 hours`
 - Valid units for duration text values are `year`, `month`, `week`, `day`, `hour`, `minute`, `second`, the plural versions, and the single letter abbreviation. `month` is abbreviated to `M`.
