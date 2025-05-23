@@ -41,6 +41,9 @@ export function parseDataviewTable(
       const fields = parseDataviewFields(tableMatch[1]);
       baseFile.display = {};
       const columnOrder: string[] = [];
+      if (!tableMatch[0].toLowerCase().includes('without id')) {
+        columnOrder.push("file.name");
+      }
       const formulas: Record<string, string> = {};
 
       fields.forEach((field, index) => {
