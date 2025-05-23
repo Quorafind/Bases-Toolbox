@@ -717,8 +717,9 @@ function parseCondition(condition: string): any {
             !trimmedArg.match(/^\d/)
           ) {
             if (trimmedArg.startsWith('link(')) {
-              const startIndexModified = trimmedArg.indexOf('"') + 1; // Start at the opening quote
-              const endIndexModified = trimmedArg.lastIndexOf('"'); // End after the closing quote
+              // pull out string within quotation marks
+              const startIndexModified = trimmedArg.indexOf('"') + 1;
+              const endIndexModified = trimmedArg.lastIndexOf('"');
               const extractedTextModified = `"[[` + trimmedArg.substring(startIndexModified, endIndexModified) + `]]"`;
               return mapDataviewPropertyToBaseProperty(extractedTextModified);
             } else {
