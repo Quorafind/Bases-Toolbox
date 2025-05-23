@@ -41,6 +41,9 @@ export function parseDataviewTable(
       const fields = parseDataviewFields(tableMatch[1]);
       baseFile.display = {};
       const columnOrder: string[] = [];
+      if (!tableMatch[0].toLowerCase().includes('without id')) {
+        columnOrder.push("file.name");
+      }
       const formulas: Record<string, string> = {};
 
       fields.forEach((field, index) => {
@@ -713,7 +716,15 @@ function parseCondition(condition: string): any {
             !trimmedArg.startsWith("'") &&
             !trimmedArg.match(/^\d/)
           ) {
-            return mapDataviewPropertyToBaseProperty(trimmedArg);
+            if (trimmedArg.startsWith('link(')) {
+              // pull out string within quotation marks
+              const startIndexModified = trimmedArg.indexOf('"') + 1;
+              const endIndexModified = trimmedArg.lastIndexOf('"');
+              const extractedTextModified = `"[[` + trimmedArg.substring(startIndexModified, endIndexModified) + `]]"`;
+              return mapDataviewPropertyToBaseProperty(extractedTextModified);
+            } else {
+              return mapDataviewPropertyToBaseProperty(trimmedArg);
+            }
           }
           return trimmedArg;
         });
