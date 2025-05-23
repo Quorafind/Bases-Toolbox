@@ -128,12 +128,12 @@ All of these Bases date functions are supported:
 - `now()` - Returns the current date and time
 - `dateModify(datetime, duration)` - Modifies a date by a duration
 - `date_diff(datetime1, datetime2)` - Gets the difference between two dates in milliseconds
-- `date_equals(datetime1, datetime2)` - Checks if two dates are equal
-- `date_not_equals(datetime1, datetime2)` - Checks if two dates are not equal
-- `date_before(datetime1, datetime2)` - Checks if the first date is before the second
-- `date_after(datetime1, datetime2)` - Checks if the first date is after the second
-- `date_on_or_before(datetime1, datetime2)` - Checks if the first date is on or before the second
-- `date_on_or_after(datetime1, datetime2)` - Checks if the first date is on or after the second
+- `dateEquals(datetime1, datetime2)` - Checks if two dates are equal
+- `dateNotEquals(datetime1, datetime2)` - Checks if two dates are not equal
+- `dateBefore(datetime1, datetime2)` - Checks if the first date is before the second
+- `dateAfter(datetime1, datetime2)` - Checks if the first date is after the second
+- `dateOnOrBefore(datetime1, datetime2)` - Checks if the first date is on or before the second
+- `dateOnOrAfter(datetime1, datetime2)` - Checks if the first date is on or after the second
 - `year(date)` - Gets the year from a date
 - `month(date)` - Gets the month from a date
 - `day(date)` - Gets the day from a date

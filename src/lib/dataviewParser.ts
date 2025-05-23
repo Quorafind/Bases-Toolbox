@@ -329,12 +329,12 @@ function parseDataviewFormula(formula: string): string {
       now: "now",
       dateModify: "dateModify",
       date_diff: "dateDiff",
-      date_equals: "dateEquals",
-      date_not_equals: "dateNotEquals",
-      date_before: "dateBefore",
-      date_after: "dateAfter",
-      date_on_or_before: "dateOnOrBefore",
-      date_on_or_after: "dateOnOrAfter",
+      dateEquals: "dateEquals",
+      dateNotEquals: "dateNotEquals",
+      dateBefore: "dateBefore",
+      dateAfter: "dateAfter",
+      dateOnOrBefore: "dateOnOrBefore",
+      dateOnOrAfter: "dateOnOrAfter",
       year: "year",
       month: "month",
       day: "day",
@@ -690,7 +690,7 @@ function parseCondition(condition: string): any {
   // Handle function calls first (like contains, startswith, etc.) before handling operators
   // This prevents misinterpreting function arguments as separate conditions
   const functionPattern =
-    /^(contains|not_contains|contains_any|contains_all|startswith|endswith|empty|not_empty|dateEquals|dateNotEquals|dateBefore|dateAfter|dateOnOrBefore|dateOnOrAfter)\s*\(/i;
+    /^(contains|not_contains|containsAny|containsAll|startswith|endswith|empty|notEmpty|dateEquals|dateNotEquals|dateBefore|dateAfter|dateOnOrBefore|dateOnOrAfter)\s*\(/i;
   const functionMatch = condition.match(functionPattern);
 
   if (functionMatch) {

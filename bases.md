@@ -23,7 +23,7 @@ filters:
         - linksTo(file.file, "Textbook")
     - not:
         - taggedWith(file.file, "book")
-        - in_folder(file.file, "Required Reading")
+        - inFolder(file.file, "Required Reading")
 formulas:
   formatted_price: 'concat(price, " dollars")'
   ppu: "price / age"
@@ -70,7 +70,7 @@ filters:
         - linksTo(file.file, "Textbook")
     - not:
         - taggedWith(file.file, "book")
-        - in_folder(file.file, "Required Reading")
+        - inFolder(file.file, "Required Reading")
 ```
 
 There are two opportunities to apply filters:

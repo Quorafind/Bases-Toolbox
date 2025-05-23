@@ -218,8 +218,8 @@
           if (fileObj && fileObj.links && Array.isArray(fileObj.links)) {
             passes = fileObj.links.includes(checkValue);
           }
-        } else if (functionName === 'in_folder') {
-          // Special handling for in_folder
+        } else if (functionName === 'inFolder') {
+          // Special handling for inFolder
           const fileObj = file.file;
           if (fileObj && fileObj.folder && fileObj.folder.includes(checkValue)) {
             passes = true;

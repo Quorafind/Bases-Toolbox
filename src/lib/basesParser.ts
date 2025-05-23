@@ -599,7 +599,7 @@ function evaluateFunction(file: any, expression: string): boolean {
       return evaluateTaggedWith(file, params);
     case "linksTo":
       return evaluateLinksTo(file, params);
-    case "in_folder":
+    case "inFolder":
       return evaluateInFolder(file, params);
     case "contains":
       return evaluateContains(file, params);
@@ -689,7 +689,7 @@ function evaluateLinksTo(file: any, params: string[]): boolean {
 }
 
 /**
- * Evaluate the in_folder function
+ * Evaluate the inFolder function
  */
 function evaluateInFolder(file: any, params: string[]): boolean {
   if (params.length < 2) return false;

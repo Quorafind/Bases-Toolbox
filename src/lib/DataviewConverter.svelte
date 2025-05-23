@@ -292,23 +292,23 @@ sort:
           <ul class="file-props filter-list">
             <li><code>contains()</code></li>
             <li><code>not_contains()</code></li>
-            <li><code>contains_any()</code></li>
-            <li><code>contains_all()</code></li>
+            <li><code>containsAny()</code></li>
+            <li><code>containsAll()</code></li>
             <li><code>startswith()</code></li>
             <li><code>endswith()</code></li>
             <li><code>empty()</code></li>
-            <li><code>not_empty()</code></li>
+            <li><code>notEmpty()</code></li>
             <li><code>if()</code></li>
-            <li><code>in_folder()</code></li>
+            <li><code>inFolder()</code></li>
             <li><code>linksTo()</code></li>
             <li><code>not()</code></li>
             <li><code>tag()</code></li>
-            <li><code>date_before()</code></li>
-            <li><code>date_after()</code></li>
-            <li><code>date_equals()</code></li>
-            <li><code>date_not_equals()</code></li>
-            <li><code>date_on_or_before()</code></li>
-            <li><code>date_on_or_after()</code></li>
+            <li><code>dateBefore()</code></li>
+            <li><code>dateAfter()</code></li>
+            <li><code>dateEquals()</code></li>
+            <li><code>dateNotEquals()</code></li>
+            <li><code>dateOnOrBefore()</code></li>
+            <li><code>dateOnOrAfter()</code></li>
             <li><code>taggedWith()</code></li>
           </ul>
           
