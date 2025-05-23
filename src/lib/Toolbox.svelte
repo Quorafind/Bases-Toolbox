@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import DataviewConverter from './DataviewConverter.svelte';
+  import About from './About.svelte';
   
   // Toolbox tabs
   const TABS = {
     BASES_PREVIEW: 'bases-preview',
-    DATAVIEW_CONVERTER: 'dataview-converter'
+    DATAVIEW_CONVERTER: 'dataview-converter',
+    ABOUT: 'about'
   };
   
   // Active tab state
@@ -47,6 +49,12 @@
       >
         Dataview Converter
       </button>
+      <button 
+        class={activeTab === TABS.ABOUT ? 'active' : ''}
+        on:click={() => setActiveTab(TABS.ABOUT)}
+      >
+        About
+      </button>
     </div>
     <div class="toolbox-header-right">
       <button aria-label="github"  on:click={() => window.open('https://github.com/quorafind/bases-toolbox', '_blank')}>
@@ -62,6 +70,8 @@
       <slot name="bases-preview"></slot>
     {:else if activeTab === TABS.DATAVIEW_CONVERTER}
       <DataviewConverter />
+    {:else if activeTab === TABS.ABOUT}
+      <About />
     {/if}
   </div>
 </div>

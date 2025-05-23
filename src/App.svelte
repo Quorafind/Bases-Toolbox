@@ -7,6 +7,9 @@
   <Toolbox>
     <BasesPreview slot="bases-preview" />
   </Toolbox>
+  <footer>
+    <p>All rights @boninall reserved</p>
+  </footer>
 </main>
 
 <style>
@@ -22,5 +25,18 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
+  }
+  
+  footer {
+    background-color: #2c3e50;
+    color: #ecf0f1;
+    padding: 1rem;
+    text-align: center;
+    font-size: 0.875rem;
+    border-top: 1px solid #34495e;
+  }
+  
+  footer p {
+    margin: 0;
   }
 </style>
