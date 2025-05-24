@@ -1,5 +1,5 @@
 import type { Literal } from "./field";
-import P from "parsimmon";
+import * as P from "parsimmon";
 import type {
   BinaryOp,
   Field,
@@ -77,28 +77,24 @@ export const DURATION_TYPES = {
 
 /** Shorthand for common dates (relative to right now). */
 export const DATE_SHORTHANDS = {
-  now: () => DateTime.local(),
-  today: () => DateTime.local().startOf("day"),
-  yesterday: () =>
-    DateTime.local()
-      .startOf("day")
-      .minus(Duration.fromObject({ days: 1 })),
-  tomorrow: () =>
-    DateTime.local()
-      .startOf("day")
-      .plus(Duration.fromObject({ days: 1 })),
-  sow: () => DateTime.local().startOf("week"),
-  "start-of-week": () => DateTime.local().startOf("week"),
-  eow: () => DateTime.local().endOf("week"),
-  "end-of-week": () => DateTime.local().endOf("week"),
-  soy: () => DateTime.local().startOf("year"),
-  "start-of-year": () => DateTime.local().startOf("year"),
-  eoy: () => DateTime.local().endOf("year"),
-  "end-of-year": () => DateTime.local().endOf("year"),
-  som: () => DateTime.local().startOf("month"),
-  "start-of-month": () => DateTime.local().startOf("month"),
-  eom: () => DateTime.local().endOf("month"),
-  "end-of-month": () => DateTime.local().endOf("month"),
+  now: () => "now()",
+  today: () => "now()",
+  yesterday: () => "dateModify(date(now()), -1 day)",
+  tomorrow: () => "dateModify(date(now()), 1 day)",
+  sow: () => "dateModify(date(now()), -day(now()) + 1 day)",
+  "start-of-week": () => "dateModify(date(now()), -day(now()) + 1 day)",
+  eow: () => "dateModify(date(now()), 7 - day(now()) day)",
+  "end-of-week": () => "dateModify(date(now()), 7 - day(now()) day)",
+  soy: () => "date(year(now()) + '-01-01')",
+  "start-of-year": () => "date(year(now()) + '-01-01')",
+  eoy: () => "date(year(now()) + '-12-31')",
+  "end-of-year": () => "date(year(now()) + '-12-31')",
+  som: () => "date(year(now()) + '-' + month(now()) + '-01')",
+  "start-of-month": () => "date(year(now()) + '-' + month(now()) + '-01')",
+  eom: () =>
+    "dateModify(date(year(now()) + '-' + month(now()) + '-01'), 1 month, -1 day)",
+  "end-of-month": () =>
+    "dateModify(date(year(now()) + '-' + month(now()) + '-01'), 1 month, -1 day)",
 };
 
 /**
@@ -419,11 +415,7 @@ export const EXPRESSION = P.createLanguage<ExpressionLanguage>({
       .desc("date in format YYYY-MM[-DDTHH-MM-SS.MS]"),
 
   // A date, plus various shorthand times of day it could be.
-  datePlus: (q) =>
-    P.alt<DateTime>(
-      q.dateShorthand.map((d) => DATE_SHORTHANDS[d]()),
-      q.date
-    ).desc("date in format YYYY-MM[-DDTHH-MM-SS.MS] or in shorthand"),
+  datePlus: (q) => q.date,
 
   // A duration of time.
   durationType: (_) =>

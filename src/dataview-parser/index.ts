@@ -15,6 +15,8 @@ export function parseDataviewTable(
     // Parse the query using Parsimmon parser
     const parseResult = parseQuery(dataviewQuery);
 
+    console.log(parseResult);
+
     if (!parseResult.successful) {
       throw new Error(`Failed to parse Dataview query: ${parseResult.error}`);
     }

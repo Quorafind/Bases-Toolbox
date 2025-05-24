@@ -37,6 +37,34 @@ export class DataviewToBasesTransformer {
   private formulaCounter: number = 0;
 
   /**
+   * Helper method to flatten nested AND/OR operations
+   */
+  private flattenLogicalOperations(
+    operator: "and" | "or",
+    operations: any[]
+  ): any {
+    const flattened: any[] = [];
+
+    for (const op of operations) {
+      if (op && typeof op === "object" && operator in op) {
+        // If the operation is the same type, flatten it
+        flattened.push(...op[operator]);
+      } else if (op !== null && op !== undefined) {
+        // Otherwise, add it as is
+        flattened.push(op);
+      }
+    }
+
+    // If only one element after flattening, return it directly
+    if (flattened.length === 1) {
+      return flattened[0];
+    }
+
+    // Otherwise return the flattened array
+    return flattened.length > 0 ? { [operator]: flattened } : null;
+  }
+
+  /**
    * Transform a parsed Dataview query to Bases YAML structure
    */
   transform(query: Query, placeFiltersInView: boolean = true): any {
@@ -241,9 +269,7 @@ export class DataviewToBasesTransformer {
         if (!right) return left;
 
         const operator = source.op === "&" ? "and" : "or";
-        return {
-          [operator]: [left, right],
-        };
+        return this.flattenLogicalOperations(operator, [left, right]);
 
       case "empty":
         return null;
@@ -465,7 +491,8 @@ export class DataviewToBasesTransformer {
 
       // Check if both sides are dates (for date difference)
       if (isLeftDate && this.isDateExpression(field.right)) {
-        return `dateDiff(${left}, ${right}, "days")`;
+        // dateDiff returns milliseconds, convert to days
+        return `floor(dateDiff(${right},${left}) / (1000 * 60 * 60 * 24))`;
       }
     }
 
@@ -475,11 +502,14 @@ export class DataviewToBasesTransformer {
       // Check if both operands are comparison expressions or filter functions
       if (
         this.isFilterExpression(field.left) ||
-        this.isFilterExpression(field.right)
+        this.isFilterExpression(field.right) ||
+        this.isLogicalObject(left) ||
+        this.isLogicalObject(right)
       ) {
-        return {
-          [operator]: [left, right],
-        };
+        return this.flattenLogicalOperations(operator as "and" | "or", [
+          left,
+          right,
+        ]);
       }
     }
 
@@ -551,6 +581,19 @@ export class DataviewToBasesTransformer {
   }
 
   /**
+   * Check if a value is a logical filter object (has 'and' or 'or' keys)
+   */
+  private isLogicalObject(value: any): boolean {
+    return (
+      value !== null &&
+      typeof value === "object" &&
+      !Array.isArray(value) &&
+      !("type" in value) && // Not a Field object
+      ("and" in value || "or" in value)
+    );
+  }
+
+  /**
    * Transform function calls
    */
   private transformFunction(field: FunctionField): string {
@@ -564,11 +607,6 @@ export class DataviewToBasesTransformer {
     ) {
       funcName = field.func.value;
     }
-
-    // Transform arguments
-    const args = field.arguments.map((arg) =>
-      this.transformFieldExpression(arg)
-    );
 
     // Map Dataview functions to Bases functions
     const functionMap: Record<string, string> = {
@@ -609,6 +647,35 @@ export class DataviewToBasesTransformer {
 
     const basesFunc = functionMap[funcName.toLowerCase()] || funcName;
 
+    // Special handling for date function BEFORE transforming arguments
+    if (basesFunc === "date" && field.arguments.length === 1) {
+      // Check if the argument is a variable like today, tomorrow, yesterday
+      if (field.arguments[0].type === "variable") {
+        const varName = field.arguments[0].name.toLowerCase();
+        switch (varName) {
+          case "today":
+            return "now()";
+          case "tomorrow":
+            return 'dateModify(now(), "1 day")';
+          case "yesterday":
+            return 'dateModify(now(), "-1 day")';
+        }
+      }
+
+      // Check if the argument looks like a date expression (YYYY-MM-DD)
+      if (this.isDateLikeExpression(field.arguments[0])) {
+        const dateStr = this.extractDateString(field.arguments[0]);
+        if (dateStr) {
+          return `date("${dateStr}")`;
+        }
+      }
+    }
+
+    // Transform arguments
+    const args = field.arguments.map((arg) =>
+      this.transformFieldExpression(arg)
+    );
+
     // Special handling for certain functions
     switch (basesFunc) {
       case "contains":
@@ -620,7 +687,7 @@ export class DataviewToBasesTransformer {
         break;
 
       case "date":
-        // Handle special date keywords
+        // Handle string literal date keywords (already handled variable case above)
         if (args.length === 1) {
           const dateArg = args[0].replace(/^"/, "").replace(/"$/, "");
           switch (dateArg.toLowerCase()) {
@@ -703,9 +770,66 @@ export class DataviewToBasesTransformer {
       return sourceFilters;
     }
 
-    // Combine with AND
-    return {
-      and: [sourceFilters, whereFilters],
-    };
+    // Combine with AND using the flattening logic
+    return this.flattenLogicalOperations("and", [sourceFilters, whereFilters]);
+  }
+
+  /**
+   * Check if a field looks like a date expression (e.g., 2023-01-01)
+   */
+  private isDateLikeExpression(field: Field): boolean {
+    // Check for pattern: number - number - number
+    if (field.type === "binaryop" && field.op === "-") {
+      // Check if right side is also a subtraction
+      if (field.right.type === "binaryop" && field.right.op === "-") {
+        // Check if all parts are numbers that could be date components
+        if (
+          field.left.type === "literal" &&
+          typeof field.left.value === "number" &&
+          field.right.left.type === "literal" &&
+          typeof field.right.left.value === "number" &&
+          field.right.right.type === "literal" &&
+          typeof field.right.right.value === "number"
+        ) {
+          const year = field.left.value;
+          const month = field.right.left.value;
+          const day = field.right.right.value;
+
+          // Basic validation for date components
+          return (
+            year >= 1900 &&
+            year <= 2100 &&
+            month >= 1 &&
+            month <= 12 &&
+            day >= 1 &&
+            day <= 31
+          );
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Extract date string from a date-like expression
+   */
+  private extractDateString(field: Field): string | null {
+    if (
+      field.type === "binaryop" &&
+      field.op === "-" &&
+      field.right.type === "binaryop" &&
+      field.right.op === "-"
+    ) {
+      const year = (field.left as LiteralField).value;
+      const month = (field.right.left as LiteralField).value;
+      const day = (field.right.right as LiteralField).value;
+
+      // Format with leading zeros
+      const monthStr = String(month).padStart(2, "0");
+      const dayStr = String(day).padStart(2, "0");
+
+      return `${year}-${monthStr}-${dayStr}`;
+    }
+    return null;
   }
 }

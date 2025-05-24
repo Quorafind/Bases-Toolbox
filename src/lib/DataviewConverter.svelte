@@ -95,6 +95,16 @@ SORT due ASC`
 FROM "tasks"
 WHERE due.month = date(today).month AND due.year = date(today).year AND status != "completed"
 SORT due ASC`
+    },
+    {
+      name: "Date Arithmetic Examples",
+      query: `TABLE 
+  date(today) as "Today",
+  date(today) + dur(7 days) as "Next Week", 
+  date(today) - dur(30 days) as "30 Days Ago",
+  date("2024-12-25") - date(today) as "Days to Christmas"
+FROM "notes"
+LIMIT 1`
     }
   ];
 
@@ -266,6 +276,8 @@ SORT due ASC`
             <li><code>SORT</code> clause with ASC/DESC</li>
             <li><code>LIMIT</code> clause</li>
             <li><code>GROUP BY</code> clause</li>
+            <li>Date arithmetic (<code>date + duration</code>, <code>date - duration</code>)</li>
+            <li>Formulas and calculations in fields</li>
           </ul>
           
           <h4>Filter Groups</h4>
@@ -296,6 +308,20 @@ sort:
     direction: DESC
   - column: date
     direction: ASC</pre>
+          
+          <h4>Date Functions & Arithmetic</h4>
+          <p>Date expressions and calculations:</p>
+          <ul class="date-functions">
+            <li><code>date(today)</code> - current date</li>
+            <li><code>date(tomorrow)</code> - tomorrow's date</li>
+            <li><code>date(yesterday)</code> - yesterday's date</li>
+            <li><code>date("2024-01-01")</code> - specific date</li>
+            <li><code>dur(7 days)</code> - duration literal</li>
+            <li><code>date(today) + dur(7 days)</code> - date arithmetic</li>
+            <li><code>date(today) - dur(1 week)</code> - subtract duration</li>
+            <li><code>due - date(today)</code> - date difference</li>
+            <li><code>date.year</code>, <code>date.month</code>, <code>date.day</code> - date accessors</li>
+          </ul>
           
           <h4>Filter Functions</h4>
           <ul class="file-props filter-list">
@@ -794,6 +820,13 @@ sort:
     margin-top: 20px;
   }
   
+  .help-column p {
+    color: #666;
+    margin: 8px 0 12px 0;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  
   .help-column ol, .help-column ul {
     margin: 0 0 0 20px;
     padding: 0;
@@ -823,6 +856,22 @@ sort:
     font-size: 13px;
     margin-bottom: 4px;
     border: 1px solid #e1e4e8;
+  }
+  
+  .date-functions {
+    margin: 10px 0 16px 20px;
+    padding: 0;
+  }
+  
+  .date-functions li {
+    margin-bottom: 6px;
+    line-height: 1.5;
+  }
+  
+  .date-functions p {
+    margin: 8px 0 4px 0;
+    color: #666;
+    font-size: 14px;
   }
   
   code {
