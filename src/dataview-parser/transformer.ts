@@ -138,6 +138,12 @@ export class DataviewToBasesTransformer {
           const columnOrder: string[] = [];
           const formulas: Record<string, string> = {};
 
+          // Add file.name column if showId is true (no "WITHOUT ID")
+          if (header.showId) {
+            result.display["file.name"] = "Name";
+            columnOrder.unshift("file.name");
+          }
+
           header.fields.forEach((namedField, index) => {
             const transformed = this.transformNamedField(namedField, index);
             result.display[transformed.fieldName] = transformed.displayName;
@@ -153,34 +159,29 @@ export class DataviewToBasesTransformer {
           if (Object.keys(formulas).length > 0) {
             result.formulas = formulas;
           }
-        }
-
-        // Handle showId property
-        if (!header.showId) {
-          // TODO: Implement WITHOUT ID handling if needed
+        } else {
+          // Handle case when no fields are specified
+          if (header.showId) {
+            result.display = { "file.name": "Name" };
+            result.views[0].order = ["file.name"];
+          }
         }
         break;
 
       case "list":
-        result.views[0].type = "list";
-        if (header.format) {
-          // Transform the format field if provided
-          const formatExpression = this.transformFieldExpression(header.format);
-          // TODO: Decide how to handle list format in Bases
-        }
-        break;
+        throw new Error(
+          "LIST queries are not supported. Please use TABLE queries instead."
+        );
 
       case "task":
-        result.views[0].type = "task";
-        break;
+        throw new Error(
+          "TASK queries are not supported. Please use TABLE queries instead."
+        );
 
       case "calendar":
-        result.views[0].type = "calendar";
-        if (header.field) {
-          const transformed = this.transformNamedField(header.field, 0);
-          result.views[0].group_by = transformed.fieldName;
-        }
-        break;
+        throw new Error(
+          "CALENDAR queries are not supported. Please use TABLE queries instead."
+        );
     }
   }
 
