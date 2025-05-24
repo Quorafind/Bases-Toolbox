@@ -125,6 +125,14 @@ SORT due ASC`
     setTimeout(() => copySuccess = false, 2000);
   }
   
+  // Copy as base code block
+  function copyAsCodeBlock() {
+    const codeBlock = '```base\n' + basesYaml + '\n```';
+    navigator.clipboard.writeText(codeBlock);
+    copySuccess = true;
+    setTimeout(() => copySuccess = false, 2000);
+  }
+  
   // Download the current base content as a .base file with timestamp
   function downloadBase() {
     if (!basesYaml) return;
@@ -204,6 +212,7 @@ SORT due ASC`
             <button class="small-button {copySuccess ? 'success' : ''}" on:click={copyToClipboard}>
               {copySuccess ? '✓ Copied' : 'Copy'}
             </button>
+            <button class="small-button" on:click={copyAsCodeBlock}>Copy as Code Block</button>
             <button class="small-button" on:click={downloadBase}>Download as .base</button>
           {/if}
         </div>
@@ -609,6 +618,7 @@ sort:
   @media (max-width: 768px) {
     .converter-container {
       flex-direction: column;
+      gap: 16px;
     }
     
     .help-content {
@@ -629,6 +639,135 @@ sort:
     
     .filter-list {
       grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .file-props {
+      grid-template-columns: 1fr;
+      grid-gap: 8px;
+    }
+    
+    .file-props li {
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+    
+    .usage-steps, .help-content {
+      padding: 12px;
+    }
+    
+    .help-column h4 {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+    
+    .help-column h4:not(:first-child) {
+      margin-top: 16px;
+    }
+    
+    .header-actions {
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    
+    .examples-dropdown {
+      right: auto;
+      left: 0;
+      max-width: calc(100vw - 40px);
+    }
+    
+    .input-header, .output-header, .actions {
+      padding: 10px 12px;
+    }
+    
+    textarea {
+      padding: 12px;
+      font-size: 13px;
+    }
+    
+    .error {
+      margin: 12px 0;
+      padding: 12px;
+    }
+    
+    .error pre {
+      font-size: 12px;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .converter-header h2 {
+      font-size: 20px;
+    }
+    
+    .converter-header p {
+      font-size: 14px;
+    }
+    
+    .filter-list {
+      grid-template-columns: 1fr;
+      grid-gap: 8px;
+    }
+    
+    .filter-list li {
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+    
+    .filter-example {
+      padding: 10px;
+      font-size: 12px;
+    }
+    
+    .small-button {
+      padding: 5px 10px;
+      font-size: 13px;
+    }
+    
+    .primary-button {
+      padding: 8px 14px;
+      font-size: 14px;
+    }
+    
+    .usage-steps ol {
+      margin-left: 16px;
+    }
+    
+    .usage-steps li {
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+    
+    .header-actions {
+      font-size: 12px;
+    }
+    
+    .example-option {
+      padding: 10px 12px;
+    }
+    
+    .dataview-converter {
+      padding: 10px;
+      padding-bottom: 16px;
+    }
+    
+    code {
+      font-size: 12px;
+      padding: 1px 4px;
+    }
+    
+    .help-section {
+      gap: 12px;
+    }
+    
+    .filters-placement label {
+      padding: 4px 0;
+      font-size: 13px;
+    }
+    
+    .filters-placement input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin-right: 8px;
     }
   }
   

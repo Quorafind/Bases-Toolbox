@@ -1,0 +1,711 @@
+import type {
+  Query,
+  QueryHeader,
+  QueryOperation,
+  WhereStep,
+  SortByStep,
+  LimitStep,
+  GroupStep,
+  NamedField,
+  QuerySortBy,
+} from "./query-types";
+import type {
+  Field,
+  BinaryOpField,
+  FunctionField,
+  VariableField,
+  LiteralField,
+  IndexField,
+  NegatedField,
+  ListField,
+} from "./field";
+import type {
+  Source,
+  TagSource,
+  FolderSource,
+  LinkSource,
+  BinaryOpSource,
+  NegatedSource,
+} from "./source-types";
+import * as yaml from "js-yaml";
+import { DateTime, Duration } from "luxon";
+
+/**
+ * Transformer class that converts parsed Dataview AST to Bases YAML structure
+ */
+export class DataviewToBasesTransformer {
+  private formulaCounter: number = 0;
+
+  /**
+   * Transform a parsed Dataview query to Bases YAML structure
+   */
+  transform(query: Query, placeFiltersInView: boolean = true): any {
+    const result: any = {
+      views: [
+        {
+          type: "table",
+          name: "Default view",
+        },
+      ],
+    };
+
+    // Transform the query header (TABLE, LIST, TASK, CALENDAR)
+    this.transformHeader(query.header, result);
+
+    // Transform the source (FROM clause)
+    const sourceFilters = this.transformSource(query.source);
+
+    // Process operations (WHERE, SORT, LIMIT, GROUP BY, etc.)
+    let whereFilters: any = null;
+
+    for (const operation of query.operations) {
+      switch (operation.type) {
+        case "where":
+          whereFilters = this.transformWhereClause(operation as WhereStep);
+          break;
+        case "sort":
+          this.transformSortClause(operation as SortByStep, result);
+          break;
+        case "limit":
+          this.transformLimitClause(operation as LimitStep, result);
+          break;
+        case "group":
+          this.transformGroupClause(operation as GroupStep, result);
+          break;
+        // Handle other operations as needed
+      }
+    }
+
+    // Combine source and where filters
+    let combinedFilters = this.combineFilters(sourceFilters, whereFilters);
+
+    if (combinedFilters) {
+      if (placeFiltersInView) {
+        result.views[0].filters = combinedFilters;
+      } else {
+        result.filters = combinedFilters;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Convert the result to YAML string
+   */
+  toYaml(query: Query, placeFiltersInView: boolean = true): string {
+    const basesObject = this.transform(query, placeFiltersInView);
+    return yaml.dump(basesObject);
+  }
+
+  /**
+   * Transform the query header (TABLE, LIST, etc.)
+   */
+  private transformHeader(header: QueryHeader, result: any): void {
+    switch (header.type) {
+      case "table":
+        result.views[0].type = "table";
+        if (header.fields.length > 0) {
+          result.display = {};
+          const columnOrder: string[] = [];
+          const formulas: Record<string, string> = {};
+
+          header.fields.forEach((namedField, index) => {
+            const transformed = this.transformNamedField(namedField, index);
+            result.display[transformed.fieldName] = transformed.displayName;
+            columnOrder.push(transformed.fieldName);
+
+            if (transformed.formula && transformed.formulaKey) {
+              formulas[transformed.formulaKey] = transformed.formula;
+            }
+          });
+
+          result.views[0].order = columnOrder;
+
+          if (Object.keys(formulas).length > 0) {
+            result.formulas = formulas;
+          }
+        }
+
+        // Handle showId property
+        if (!header.showId) {
+          // TODO: Implement WITHOUT ID handling if needed
+        }
+        break;
+
+      case "list":
+        result.views[0].type = "list";
+        if (header.format) {
+          // Transform the format field if provided
+          const formatExpression = this.transformFieldExpression(header.format);
+          // TODO: Decide how to handle list format in Bases
+        }
+        break;
+
+      case "task":
+        result.views[0].type = "task";
+        break;
+
+      case "calendar":
+        result.views[0].type = "calendar";
+        if (header.field) {
+          const transformed = this.transformNamedField(header.field, 0);
+          result.views[0].group_by = transformed.fieldName;
+        }
+        break;
+    }
+  }
+
+  /**
+   * Transform a named field (used in TABLE columns)
+   */
+  private transformNamedField(
+    namedField: NamedField,
+    index: number
+  ): {
+    fieldName: string;
+    displayName: string;
+    formula?: string;
+    formulaKey?: string;
+  } {
+    const displayName = namedField.name;
+
+    // Check if this is a computed field (formula)
+    if (this.isFormulaField(namedField.field)) {
+      const formulaKey = displayName.toLowerCase().replace(/\s+/g, "_");
+      const formula = this.transformFieldExpression(namedField.field);
+
+      return {
+        fieldName: `formula.${formulaKey}`,
+        displayName: displayName,
+        formula: formula,
+        formulaKey: formulaKey,
+      };
+    } else {
+      // Simple field reference
+      const fieldName = this.transformFieldExpression(namedField.field);
+
+      return {
+        fieldName: fieldName,
+        displayName: displayName,
+      };
+    }
+  }
+
+  /**
+   * Check if a field is a formula (computed field)
+   */
+  private isFormulaField(field: Field): boolean {
+    // A field is considered a formula if it's not just a simple variable or property access
+    switch (field.type) {
+      case "variable":
+        return false;
+      case "index":
+        // Property access like file.name is not a formula
+        return this.isFormulaField(field.object);
+      default:
+        // Binary operations, functions, etc. are formulas
+        return true;
+    }
+  }
+
+  /**
+   * Transform the source (FROM clause)
+   */
+  private transformSource(source: Source): any {
+    switch (source.type) {
+      case "folder":
+        if (!source.folder || source.folder === "") {
+          return null;
+        }
+        return `inFolder(file.file, "${source.folder}")`;
+      case "tag": // Remove the # prefix if it exists
+        const tag = source.tag.startsWith("#")
+          ? source.tag.slice(1)
+          : source.tag;
+        return `taggedWith(file.file, "#${tag}")`;
+      case "link":
+        // TODO: Implement link source transformation
+        return `linksTo(file.file, "${source.file}")`;
+
+      case "negate":
+        const inner = this.transformSource(source.child);
+        return inner ? `not(${inner})` : null;
+
+      case "binaryop":
+        const left = this.transformSource(source.left);
+        const right = this.transformSource(source.right);
+
+        if (!left && !right) return null;
+        if (!left) return right;
+        if (!right) return left;
+
+        const operator = source.op === "&" ? "and" : "or";
+        return {
+          [operator]: [left, right],
+        };
+
+      case "empty":
+        return null;
+
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Transform WHERE clause
+   */
+  private transformWhereClause(whereStep: WhereStep): any {
+    return this.transformFieldExpression(whereStep.clause);
+  }
+
+  /**
+   * Transform SORT clause
+   */
+  private transformSortClause(sortStep: SortByStep, result: any): void {
+    const sortFields = sortStep.fields.map((sortField) => ({
+      column: this.transformFieldExpression(sortField.field),
+      direction: sortField.direction === "ascending" ? "ASC" : "DESC",
+    }));
+
+    result.views[0].sort = sortFields;
+  }
+
+  /**
+   * Transform LIMIT clause
+   */
+  private transformLimitClause(limitStep: LimitStep, result: any): void {
+    // Extract the limit value
+    if (
+      limitStep.amount.type === "literal" &&
+      typeof limitStep.amount.value === "number"
+    ) {
+      result.views[0].limit = limitStep.amount.value;
+    } else {
+      // Handle dynamic limits if needed
+      const limitExpr = this.transformFieldExpression(limitStep.amount);
+      // For now, we'll try to parse it as a number if it's a simple expression
+      const parsed = parseInt(limitExpr);
+      if (!isNaN(parsed)) {
+        result.views[0].limit = parsed;
+      }
+    }
+  }
+
+  /**
+   * Transform GROUP BY clause
+   */
+  private transformGroupClause(groupStep: GroupStep, result: any): void {
+    const groupField = this.transformFieldExpression(groupStep.field.field);
+    result.views[0].group_by = groupField;
+  }
+
+  /**
+   * Transform a field expression to Bases format
+   */
+  private transformFieldExpression(field: Field): any {
+    switch (field.type) {
+      case "variable":
+        return this.mapDataviewPropertyToBaseProperty(field.name);
+
+      case "literal":
+        return this.transformLiteral(field);
+
+      case "index":
+        return this.transformIndexField(field);
+
+      case "binaryop":
+        return this.transformBinaryOp(field);
+
+      case "function":
+        return this.transformFunction(field);
+
+      case "negated":
+        return `not(${this.transformFieldExpression(field.child)})`;
+
+      case "list":
+        // Transform list literals
+        const listItems = field.values.map((v) =>
+          this.transformFieldExpression(v)
+        );
+        return `[${listItems.join(", ")}]`;
+
+      default:
+        // Fallback for unhandled field types
+        return "";
+    }
+  }
+
+  /**
+   * Transform literal values
+   */
+  private transformLiteral(field: LiteralField): string {
+    const value = field.value;
+
+    if (typeof value === "string") {
+      return `"${value}"`;
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      return String(value);
+    } else if (value === null) {
+      return "null";
+    } else if (value instanceof DateTime) {
+      // Handle DateTime literals
+      return `date("${value.toISODate()}")`;
+    } else if (value && typeof value === "object" && "toISO" in value) {
+      // Handle Duration literals (they have toISO method)
+      // Convert Duration to a string format for Bases
+      const dur = value as any;
+      if (dur.years) return `duration("${dur.years} years")`;
+      if (dur.months) return `duration("${dur.months} months")`;
+      if (dur.weeks) return `duration("${dur.weeks} weeks")`;
+      if (dur.days) return `duration("${dur.days} days")`;
+      if (dur.hours) return `duration("${dur.hours} hours")`;
+      if (dur.minutes) return `duration("${dur.minutes} minutes")`;
+      if (dur.seconds) return `duration("${dur.seconds} seconds")`;
+      return `duration("0 days")`;
+    } else {
+      // Handle other literal types as needed
+      return String(value);
+    }
+  }
+
+  /**
+   * Transform index fields (property access)
+   */
+  private transformIndexField(field: IndexField): string {
+    const object = this.transformFieldExpression(field.object);
+    const index = field.index;
+
+    if (index.type === "literal" && typeof index.value === "string") {
+      // Handle special date property accessors
+      const dateAccessors = [
+        "year",
+        "month",
+        "day",
+        "hour",
+        "minute",
+        "second",
+      ];
+      if (dateAccessors.includes(index.value.toLowerCase())) {
+        return `${index.value.toLowerCase()}(${object})`;
+      }
+
+      // Regular property access
+      return this.mapDataviewPropertyToBaseProperty(`${object}.${index.value}`);
+    }
+
+    // Dynamic index access
+    return `${object}[${this.transformFieldExpression(index)}]`;
+  }
+
+  /**
+   * Transform binary operations
+   */
+  private transformBinaryOp(field: BinaryOpField): any {
+    const left = this.transformFieldExpression(field.left);
+    const right = this.transformFieldExpression(field.right);
+
+    // Map Dataview operators to Bases operators
+    const operatorMap: Record<string, string> = {
+      "=": "==",
+      "!=": "!=",
+      ">": ">",
+      ">=": ">=",
+      "<": "<",
+      "<=": "<=",
+      "+": "+",
+      "-": "-",
+      "*": "*",
+      "/": "/",
+      "%": "%",
+      "&": "and",
+      "|": "or",
+    };
+
+    const operator = operatorMap[field.op] || field.op;
+
+    // Handle date arithmetic specially
+    if (field.op === "+" || field.op === "-") {
+      // Check if left side is a date function or now()
+      const isLeftDate =
+        this.isDateExpression(field.left) ||
+        (field.left.type === "function" &&
+          field.left.func.type === "variable" &&
+          field.left.func.name.toLowerCase() === "date");
+
+      // Check if right side is a duration
+      const isRightDuration =
+        (field.right.type === "function" &&
+          field.right.func.type === "variable" &&
+          field.right.func.name.toLowerCase() === "dur") ||
+        (field.right.type === "literal" &&
+          field.right.value &&
+          typeof field.right.value === "object" &&
+          "toISO" in field.right.value);
+
+      if (isLeftDate && isRightDuration) {
+        // Handle date +/- duration
+        // The right side is already transformed to duration("X days")
+        const durationStr = right.replace(/^duration\(/, "").replace(/\)$/, "");
+        if (field.op === "-") {
+          // For subtraction, we need to negate the duration
+          // Check if the duration is already quoted
+          if (durationStr.startsWith('"')) {
+            // Insert the minus sign after the opening quote
+            const negatedDuration = durationStr.replace(/^"/, '"-');
+            return `dateModify(${left}, ${negatedDuration})`;
+          } else {
+            return `dateModify(${left}, "-${durationStr}")`;
+          }
+        } else {
+          return `dateModify(${left}, ${durationStr})`;
+        }
+      }
+
+      // Check if both sides are dates (for date difference)
+      if (isLeftDate && this.isDateExpression(field.right)) {
+        return `dateDiff(${left}, ${right}, "days")`;
+      }
+    }
+
+    // Handle logical operators differently - they return objects for filter expressions
+    if (operator === "and" || operator === "or") {
+      // If we're in a filter context, return the object format
+      // Check if both operands are comparison expressions or filter functions
+      if (
+        this.isFilterExpression(field.left) ||
+        this.isFilterExpression(field.right)
+      ) {
+        return {
+          [operator]: [left, right],
+        };
+      }
+    }
+
+    // Handle string concatenation with +
+    if (
+      field.op === "+" &&
+      field.right.type === "literal" &&
+      typeof field.right.value === "string"
+    ) {
+      return `join("", ${left}, ${right})`;
+    }
+
+    return `${left} ${operator} ${right}`;
+  }
+
+  /**
+   * Check if a field is a date expression
+   */
+  private isDateExpression(field: Field): boolean {
+    if (field.type === "function" && field.func.type === "variable") {
+      const funcName = field.func.name.toLowerCase();
+      return funcName === "date" || funcName === "now";
+    }
+    if (field.type === "literal" && field.value instanceof DateTime) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Check if a field expression is a filter expression (comparison or filter function)
+   */
+  private isFilterExpression(field: Field): boolean {
+    if (field.type === "binaryop") {
+      const compareOps = ["=", "!=", ">", ">=", "<", "<="];
+      return compareOps.includes(field.op);
+    }
+
+    if (field.type === "function") {
+      // Check if it's a filter function
+      const filterFunctions = [
+        "contains",
+        "containsAny",
+        "containsAll",
+        "startswith",
+        "endswith",
+        "empty",
+        "notEmpty",
+        "taggedWith",
+        "linksTo",
+        "dateEquals",
+        "dateNotEquals",
+        "dateBefore",
+        "dateAfter",
+        "dateOnOrBefore",
+        "dateOnOrAfter",
+      ];
+
+      if (field.func.type === "variable") {
+        return filterFunctions.includes(field.func.name.toLowerCase());
+      }
+    }
+
+    if (field.type === "negated") {
+      return true; // not() is always a filter expression
+    }
+
+    return false;
+  }
+
+  /**
+   * Transform function calls
+   */
+  private transformFunction(field: FunctionField): string {
+    // Extract function name
+    let funcName = "";
+    if (field.func.type === "variable") {
+      funcName = field.func.name;
+    } else if (
+      field.func.type === "literal" &&
+      typeof field.func.value === "string"
+    ) {
+      funcName = field.func.value;
+    }
+
+    // Transform arguments
+    const args = field.arguments.map((arg) =>
+      this.transformFieldExpression(arg)
+    );
+
+    // Map Dataview functions to Bases functions
+    const functionMap: Record<string, string> = {
+      round: "round",
+      floor: "floor",
+      ceil: "ceil",
+      min: "min",
+      max: "max",
+      sum: "sum",
+      avg: "average",
+      length: "len",
+      contains: "contains",
+      containsany: "containsAny",
+      containsall: "containsAll",
+      startswith: "startswith",
+      endswith: "endswith",
+      empty: "empty",
+      notempty: "notEmpty",
+      dateformat: "dateFormat",
+      date: "date",
+      now: "now",
+      dur: "duration",
+      datemodify: "dateModify",
+      datediff: "dateDiff",
+      dateequals: "dateEquals",
+      datenotequals: "dateNotEquals",
+      datebefore: "dateBefore",
+      dateafter: "dateAfter",
+      dateonorbefore: "dateOnOrBefore",
+      dateonorafter: "dateOnOrAfter",
+      year: "year",
+      month: "month",
+      day: "day",
+      hour: "hour",
+      minute: "minute",
+      second: "second",
+    };
+
+    const basesFunc = functionMap[funcName.toLowerCase()] || funcName;
+
+    // Special handling for certain functions
+    switch (basesFunc) {
+      case "contains":
+        // Special handling for tags
+        if (args.length === 2 && args[0] === "tags") {
+          const tag = args[1].replace(/^"/, "").replace(/"$/, "");
+          return `taggedWith(file.file, "${tag}")`;
+        }
+        break;
+
+      case "date":
+        // Handle special date keywords
+        if (args.length === 1) {
+          const dateArg = args[0].replace(/^"/, "").replace(/"$/, "");
+          switch (dateArg.toLowerCase()) {
+            case "today":
+              return "now()";
+            case "tomorrow":
+              return 'dateModify(now(), "1 day")';
+            case "yesterday":
+              return 'dateModify(now(), "-1 day")';
+            default:
+              return args[0];
+          }
+        }
+        break;
+
+      case "duration":
+        // Handle dur() function - convert to string format
+        if (args.length === 1) {
+          // Extract the duration string from dur(X days) format
+          const durMatch = args[0].match(/(\d+)\s*([a-zA-Z]+)/);
+          if (durMatch) {
+            const [, num, unit] = durMatch;
+            if (unit.toLowerCase().startsWith("week")) {
+              const days = parseInt(num) * 7;
+              return `"${days} days"`;
+            }
+            return `"${num} ${unit}"`;
+          }
+        }
+        break;
+    }
+
+    return `${basesFunc}(${args.join(", ")})`;
+  }
+
+  /**
+   * Map Dataview property names to Bases property names
+   */
+  private mapDataviewPropertyToBaseProperty(prop: string): string {
+    prop = prop.trim();
+
+    // Handle common Dataview file property mappings
+    const propertyMap: Record<string, string> = {
+      "file.path": "file.path",
+      "file.name": "file.name",
+      "file.folder": "file.folder",
+      "file.ext": "file.extension",
+      "file.size": "file.size",
+      "file.ctime": "file.ctime",
+      "file.mtime": "file.mtime",
+      "file.cday": "file.ctime",
+      "file.mday": "file.mtime",
+    };
+
+    if (propertyMap[prop]) {
+      return propertyMap[prop];
+    }
+
+    // Handle properties with hyphens by converting to underscores
+    if (prop.includes("-")) {
+      return prop.replace(/-/g, "_");
+    }
+
+    return prop;
+  }
+
+  /**
+   * Combine source and where filters
+   */
+  private combineFilters(sourceFilters: any, whereFilters: any): any {
+    if (!sourceFilters && !whereFilters) {
+      return null;
+    }
+
+    if (!sourceFilters) {
+      return whereFilters;
+    }
+
+    if (!whereFilters) {
+      return sourceFilters;
+    }
+
+    // Combine with AND
+    return {
+      and: [sourceFilters, whereFilters],
+    };
+  }
+}
