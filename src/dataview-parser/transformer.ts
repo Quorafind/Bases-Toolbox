@@ -609,6 +609,16 @@ export class DataviewToBasesTransformer {
       funcName = field.func.value;
     }
 
+    // Special handling for link() function - transform to wikilink format
+    if (funcName.toLowerCase() === "link") {
+      if (field.arguments.length === 1) {
+        const linkTarget = this.transformFieldExpression(field.arguments[0]);
+        // Remove surrounding quotes if present and wrap in wikilink format
+        const cleanTarget = linkTarget.replace(/^"/, "").replace(/"$/, "");
+        return `"[[${cleanTarget}]]"`;
+      }
+    }
+
     // Map Dataview functions to Bases functions
     const functionMap: Record<string, string> = {
       round: "round",
