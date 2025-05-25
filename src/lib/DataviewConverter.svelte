@@ -95,6 +95,16 @@ SORT due ASC`
 FROM "tasks"
 WHERE due.month = date(today).month AND due.year = date(today).year AND status != "completed"
 SORT due ASC`
+    },
+    {
+      name: "Date Arithmetic Examples",
+      query: `TABLE 
+  date(today) as "Today",
+  date(today) + dur(7 days) as "Next Week", 
+  date(today) - dur(30 days) as "30 Days Ago",
+  date("2024-12-25") - date(today) as "Days to Christmas"
+FROM "notes"
+LIMIT 1`
     }
   ];
 
@@ -121,6 +131,14 @@ SORT due ASC`
   
   function copyToClipboard() {
     navigator.clipboard.writeText(basesYaml);
+    copySuccess = true;
+    setTimeout(() => copySuccess = false, 2000);
+  }
+  
+  // Copy as base code block
+  function copyAsCodeBlock() {
+    const codeBlock = '```base\n' + basesYaml + '\n```';
+    navigator.clipboard.writeText(codeBlock);
     copySuccess = true;
     setTimeout(() => copySuccess = false, 2000);
   }
@@ -204,6 +222,7 @@ SORT due ASC`
             <button class="small-button {copySuccess ? 'success' : ''}" on:click={copyToClipboard}>
               {copySuccess ? '✓ Copied' : 'Copy'}
             </button>
+            <button class="small-button" on:click={copyAsCodeBlock}>Copy as Code Block</button>
             <button class="small-button" on:click={downloadBase}>Download as .base</button>
           {/if}
         </div>
@@ -257,6 +276,8 @@ SORT due ASC`
             <li><code>SORT</code> clause with ASC/DESC</li>
             <li><code>LIMIT</code> clause</li>
             <li><code>GROUP BY</code> clause</li>
+            <li>Date arithmetic (<code>date + duration</code>, <code>date - duration</code>)</li>
+            <li>Formulas and calculations in fields</li>
           </ul>
           
           <h4>Filter Groups</h4>
@@ -287,6 +308,20 @@ sort:
     direction: DESC
   - column: date
     direction: ASC</pre>
+          
+          <h4>Date Functions & Arithmetic</h4>
+          <p>Date expressions and calculations:</p>
+          <ul class="date-functions">
+            <li><code>date(today)</code> - current date</li>
+            <li><code>date(tomorrow)</code> - tomorrow's date</li>
+            <li><code>date(yesterday)</code> - yesterday's date</li>
+            <li><code>date("2024-01-01")</code> - specific date</li>
+            <li><code>dur(7 days)</code> - duration literal</li>
+            <li><code>date(today) + dur(7 days)</code> - date arithmetic</li>
+            <li><code>date(today) - dur(1 week)</code> - subtract duration</li>
+            <li><code>due - date(today)</code> - date difference</li>
+            <li><code>date.year</code>, <code>date.month</code>, <code>date.day</code> - date accessors</li>
+          </ul>
           
           <h4>Filter Functions</h4>
           <ul class="file-props filter-list">
@@ -609,6 +644,7 @@ sort:
   @media (max-width: 768px) {
     .converter-container {
       flex-direction: column;
+      gap: 16px;
     }
     
     .help-content {
@@ -629,6 +665,135 @@ sort:
     
     .filter-list {
       grid-template-columns: repeat(2, 1fr);
+    }
+    
+    .file-props {
+      grid-template-columns: 1fr;
+      grid-gap: 8px;
+    }
+    
+    .file-props li {
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+    
+    .usage-steps, .help-content {
+      padding: 12px;
+    }
+    
+    .help-column h4 {
+      font-size: 16px;
+      margin-bottom: 10px;
+    }
+    
+    .help-column h4:not(:first-child) {
+      margin-top: 16px;
+    }
+    
+    .header-actions {
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    
+    .examples-dropdown {
+      right: auto;
+      left: 0;
+      max-width: calc(100vw - 40px);
+    }
+    
+    .input-header, .output-header, .actions {
+      padding: 10px 12px;
+    }
+    
+    textarea {
+      padding: 12px;
+      font-size: 13px;
+    }
+    
+    .error {
+      margin: 12px 0;
+      padding: 12px;
+    }
+    
+    .error pre {
+      font-size: 12px;
+    }
+  }
+  
+  @media (max-width: 480px) {
+    .converter-header h2 {
+      font-size: 20px;
+    }
+    
+    .converter-header p {
+      font-size: 14px;
+    }
+    
+    .filter-list {
+      grid-template-columns: 1fr;
+      grid-gap: 8px;
+    }
+    
+    .filter-list li {
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+    
+    .filter-example {
+      padding: 10px;
+      font-size: 12px;
+    }
+    
+    .small-button {
+      padding: 5px 10px;
+      font-size: 13px;
+    }
+    
+    .primary-button {
+      padding: 8px 14px;
+      font-size: 14px;
+    }
+    
+    .usage-steps ol {
+      margin-left: 16px;
+    }
+    
+    .usage-steps li {
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+    
+    .header-actions {
+      font-size: 12px;
+    }
+    
+    .example-option {
+      padding: 10px 12px;
+    }
+    
+    .dataview-converter {
+      padding: 10px;
+      padding-bottom: 16px;
+    }
+    
+    code {
+      font-size: 12px;
+      padding: 1px 4px;
+    }
+    
+    .help-section {
+      gap: 12px;
+    }
+    
+    .filters-placement label {
+      padding: 4px 0;
+      font-size: 13px;
+    }
+    
+    .filters-placement input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin-right: 8px;
     }
   }
   
@@ -653,6 +818,13 @@ sort:
   
   .help-column h4:not(:first-child) {
     margin-top: 20px;
+  }
+  
+  .help-column p {
+    color: #666;
+    margin: 8px 0 12px 0;
+    font-size: 14px;
+    line-height: 1.5;
   }
   
   .help-column ol, .help-column ul {
@@ -684,6 +856,22 @@ sort:
     font-size: 13px;
     margin-bottom: 4px;
     border: 1px solid #e1e4e8;
+  }
+  
+  .date-functions {
+    margin: 10px 0 16px 20px;
+    padding: 0;
+  }
+  
+  .date-functions li {
+    margin-bottom: 6px;
+    line-height: 1.5;
+  }
+  
+  .date-functions p {
+    margin: 8px 0 4px 0;
+    color: #666;
+    font-size: 14px;
   }
   
   code {
