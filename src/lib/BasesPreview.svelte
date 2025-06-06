@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import * as yaml from 'js-yaml';
-  import { parseBaseFile, applyFilters, applyFormula, getPropertyValue } from './basesParser';
-  import { generateMockFiles, generateDemoFiles } from './mockDataGenerator';
-  import { baseTemplates } from './templateExamples';
-  import MapView from './MapView.svelte';
+  import { applyFormula, getPropertyValue } from './basesParser';
+  import { generateDemoFiles } from './mockDataGeneratorLazy';
+  import { loadTemplates } from './templateLoader';
+  import MapViewLazy from './MapViewLazy.svelte';
   import BoardView from './BoardView.svelte';
   import GalleryView from './GalleryView.svelte';
   import CalendarView from './CalendarView.svelte';
@@ -20,6 +20,8 @@
   let lastTemplate = '';
   let filterRejectionReasons: Record<string, string[]> = {};
   let showFilterDebug = false;
+  let baseTemplates: any = {};
+  let templatesLoaded = false;
 
   // Parse Base YAML content
   function parseBase(content: string) {
@@ -366,25 +368,38 @@
   }
 
   // Use first template as initial content
-  onMount(() => {
-    baseContent = baseTemplates.basic.yaml;
-    lastTemplate = 'basic';
-    mockFiles = generateDemoFiles();
-    parseBase(baseContent);
+  onMount(async () => {
+    try {
+      // Load templates
+      baseTemplates = await loadTemplates();
+      templatesLoaded = true;
+
+      // Set initial content
+      if (baseTemplates.basic) {
+        baseContent = baseTemplates.basic.yaml;
+        lastTemplate = 'basic';
+      }
+
+      // Load mock data
+      mockFiles = await generateDemoFiles();
+      parseBase(baseContent);
+    } catch (error) {
+      console.error('Failed to initialize:', error);
+      error = 'Failed to load initial data';
+    }
   });
 
   // Watch for content changes to regenerate mock data when necessary
   $: {
     // If baseContent changes significantly, regenerate mock data
-    const contentHash = baseContent.length > 0 ? 
+    const contentHash = baseContent.length > 0 ?
       baseContent.substring(0, 50).replace(/\s/g, '') : '';
-      
+
     if (contentHash && contentHash !== lastContentHash) {
       lastContentHash = contentHash;
       // Don't regenerate data for minor edits or when the app first loads
       if (mockFilesGenerated) {
-        mockFiles = generateDemoFiles();
-        parseBase(baseContent);
+        regenerateDataAsync();
       }
     }
   }
@@ -501,54 +516,68 @@
     });
   }
 
-  // Generate a new set of random data
-  function regenerateData() {
-    mockFiles = generateDemoFiles();
-    mockFilesGenerated = true;
-    
-    // Attach base data to all files if we have a parsed base
-    if (parsedBase) {
-      mockFiles = mockFiles.map(file => {
-        return { ...file, _baseData: parsedBase };
-      });
-      
-      // Pre-calculate formulas for performance
-      preCalculateFormulas(mockFiles, parsedBase);
+  // Generate a new set of random data (async version)
+  async function regenerateDataAsync() {
+    try {
+      mockFiles = await generateDemoFiles();
+      mockFilesGenerated = true;
+
+      // Attach base data to all files if we have a parsed base
+      if (parsedBase) {
+        mockFiles = mockFiles.map(file => {
+          return { ...file, _baseData: parsedBase };
+        });
+
+        // Pre-calculate formulas for performance
+        preCalculateFormulas(mockFiles, parsedBase);
+      }
+
+      parseBase(baseContent);
+    } catch (error) {
+      console.error('Failed to regenerate data:', error);
     }
-    
-    parseBase(baseContent);
+  }
+
+  // Generate a new set of random data (sync wrapper for button)
+  function regenerateData() {
+    regenerateDataAsync();
   }
   
   // Apply a template
-  function applyTemplate(templateKey: string) {
+  async function applyTemplate(templateKey: string) {
     const template = baseTemplates[templateKey as keyof typeof baseTemplates];
     if (template) {
       // Only regenerate data if template changed
       if (lastTemplate !== templateKey) {
-        mockFiles = generateDemoFiles();
-        mockFilesGenerated = true;
-        lastTemplate = templateKey;
+        try {
+          mockFiles = await generateDemoFiles();
+          mockFilesGenerated = true;
+          lastTemplate = templateKey;
+        } catch (error) {
+          console.error('Failed to generate demo files:', error);
+          return;
+        }
       }
-      
+
       baseContent = template.yaml;
-      
+
       // Parse the content to extract the base data
       try {
         const parsedTemplateBase = yaml.load(baseContent);
-        
+
         // Attach base data to all files if we have a parsed base
         if (parsedTemplateBase) {
           mockFiles = mockFiles.map(file => {
             return { ...file, _baseData: parsedTemplateBase };
           });
-          
+
           // Pre-calculate formulas for performance
           preCalculateFormulas(mockFiles, parsedTemplateBase);
         }
       } catch (e) {
         console.error("Error parsing template YAML:", e);
       }
-      
+
       parseBase(baseContent);
       showTemplateSelector = false;
     }
@@ -621,14 +650,14 @@
             Try Example Templates
           </button>
           
-          {#if showTemplateSelector}
+          {#if showTemplateSelector && templatesLoaded}
             <div class="template-dropdown">
               {#each Object.entries(baseTemplates) as [key, template]}
-                <button 
-                  class="template-option" 
+                <button
+                  class="template-option"
                   on:click={() => applyTemplate(key)}
                 >
-                  {template.name}
+                  {(template as any)?.name || key}
                 </button>
               {/each}
             </div>
@@ -746,11 +775,11 @@
               </div>
             {:else if parsedBase.views[activeView].type === 'map'}
               <div class="map-view">
-                <MapView 
-                  files={filteredFiles.filter(f => f.has_coords)} 
-                  latField={parsedBase.views[activeView].lat || 'lat'} 
-                  longField={parsedBase.views[activeView].long || 'long'} 
-                  titleField={parsedBase.views[activeView].title || 'file.name'} 
+                <MapViewLazy
+                  files={filteredFiles.filter(f => f.has_coords)}
+                  latField={parsedBase.views[activeView].lat || 'lat'}
+                  longField={parsedBase.views[activeView].long || 'long'}
+                  titleField={parsedBase.views[activeView].title || 'file.name'}
                 />
               </div>
             {:else if parsedBase.views[activeView].type === 'board'}
