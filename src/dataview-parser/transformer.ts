@@ -416,9 +416,26 @@ export class DataviewToBasesTransformer {
       if (dur.seconds)
         return `"${dur.seconds} second${dur.seconds !== 1 ? "s" : ""}"`;
       return `"0 days"`;
+    } else if (value && typeof value === "object" && "path" in value && "type" in value) {
+      // Handle Link objects (Obsidian links)
+      return this.transformLinkObject(value as any);
     } else {
       // Handle other literal types as needed
       return String(value);
+    }
+  }
+
+  /**
+   * Transform Link objects (Obsidian links with potential aliases)
+   */
+  private transformLinkObject(link: any): string {
+    // Handle Link objects that contain path and potentially display name
+    if (link.display) {
+      // If the link has a display name (alias), use the link() function
+      return `link("${link.path}", "${link.display}")`;
+    } else {
+      // If no display name, just use the path as a string
+      return `"${link.path}"`;
     }
   }
 
