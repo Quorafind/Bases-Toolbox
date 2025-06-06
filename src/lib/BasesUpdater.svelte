@@ -7,7 +7,7 @@
   let updateSummary: string[] = [];
   let error = '';
   let isLoading = false;
-  let fileInput: HTMLInputElement;
+  let copySuccess = false;
 
   const updater = new BasesUpdater();
 
@@ -64,26 +64,25 @@ views:
 
   function loadExample() {
     oldBasesYaml = exampleOldSyntax;
-    updateBases();
   }
 
-  function loadFile() {
-    fileInput.click();
+  function handleDrop(event: DragEvent) {
+    event.preventDefault();
+
+    if (!event.dataTransfer?.files.length) return;
+
+    const file = event.dataTransfer.files[0];
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      oldBasesYaml = e.target?.result as string;
+    };
+
+    reader.readAsText(file);
   }
 
-  function handleFileSelect(event: Event) {
-    const target = event.target as HTMLInputElement;
-    const file = target.files?.[0];
-    
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const content = e.target?.result as string;
-        oldBasesYaml = content;
-        updateBases();
-      };
-      reader.readAsText(file);
-    }
+  function preventDefault(event: DragEvent) {
+    event.preventDefault();
   }
 
   function updateBases() {
@@ -111,117 +110,136 @@ views:
 
   function copyToClipboard() {
     navigator.clipboard.writeText(newBasesYaml).then(() => {
-      // Could add a toast notification here
+      copySuccess = true;
+      setTimeout(() => copySuccess = false, 2000);
     });
   }
 
-  function clearAll() {
-    oldBasesYaml = '';
-    newBasesYaml = '';
-    updateSummary = [];
-    error = '';
-    if (fileInput) {
-      fileInput.value = '';
-    }
+  function downloadBase() {
+    if (!newBasesYaml) return;
+
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[-:]/g, '').replace('T', '_').split('.')[0];
+    const filename = `Updated base ${timestamp}.base`;
+
+    const blob = new Blob([newBasesYaml], { type: 'text/yaml' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+
+    URL.revokeObjectURL(url);
   }
 
   // Auto-update when input changes
   $: if (oldBasesYaml !== undefined) {
     updateBases();
   }
+
+  // Use example as initial content
+  onMount(() => {
+    oldBasesYaml = exampleOldSyntax;
+  });
 </script>
 
-<div class="bases-updater">
-  <div class="header">
-    <h1>🔄 Bases Updater</h1>
-    <p class="description">
-      Convert your old Bases syntax to the new format. Paste your old .base file content below and get the updated syntax.
-    </p>
+<div class="updater-app">
+  <div class="updater-header">
+    <h2>Bases Syntax Updater</h2>
+    <p>Drag and drop a .base file or edit the YAML directly to update to the latest syntax</p>
   </div>
 
-  <div class="controls">
-    <button on:click={loadFile} class="btn btn-secondary">
-      📁 Load .base File
-    </button>
-    <button on:click={loadExample} class="btn btn-secondary">
-      📄 Load Example
-    </button>
-    <button on:click={clearAll} class="btn btn-secondary">
-      🗑️ Clear All
-    </button>
-  </div>
-
-  <!-- Hidden file input -->
-  <input
-    type="file"
-    accept=".base,.yaml,.yml,.txt"
-    bind:this={fileInput}
-    on:change={handleFileSelect}
-    style="display: none;"
-  />
-
-  <div class="content">
-    <div class="input-section">
-      <div class="section-header">
-        <h3>Old Bases Syntax</h3>
-        <span class="hint">Paste your old .base file content here or load a file</span>
+  <div class="content-container">
+    <div class="editor-container">
+      <div
+        class="dropzone"
+        on:dragover={preventDefault}
+        on:dragenter={preventDefault}
+        on:drop={handleDrop}
+      >
+        <p>Drop your .base file here</p>
       </div>
+
       <textarea
         bind:value={oldBasesYaml}
-        placeholder="Paste your old Bases YAML here or click 'Load .base File' to select a file..."
-        class="yaml-input"
-        rows="20"
+        placeholder="Enter your old Bases YAML here..."
+        spellcheck="false"
       ></textarea>
+
+      {#if error}
+        <div class="error">
+          <h3>Error:</h3>
+          <pre>{error}</pre>
+        </div>
+      {/if}
+
+      <div class="actions">
+        <div class="template-selector">
+          <button on:click={loadExample}>
+            Load Example
+          </button>
+        </div>
+
+
+      </div>
     </div>
 
-    <div class="output-section">
-      <div class="section-header">
-        <h3>New Bases Syntax</h3>
-        <div class="output-controls">
-          {#if newBasesYaml}
-            <button on:click={copyToClipboard} class="btn btn-primary">
-              📋 Copy
-            </button>
-          {/if}
-        </div>
-      </div>
-
+    <div class="preview-container">
       {#if isLoading}
-        <div class="loading">
+        <div class="loading-state">
           <div class="spinner"></div>
-          <span>Updating syntax...</span>
+          <p>Updating syntax...</p>
         </div>
       {:else if error}
-        <div class="error">
-          <h4>❌ Error</h4>
-          <p>{error}</p>
+        <div class="error-state">
+          <h3>❌ Error</h3>
+          <pre>{error}</pre>
         </div>
       {:else if newBasesYaml}
-        <textarea
-          value={newBasesYaml}
-          readonly
-          class="yaml-output"
-          rows="20"
-        ></textarea>
+        <div class="result-content">
+          <div class="result-header">
+            <div class="result-title">
+              <h3>Updated Syntax</h3>
+              {#if updateSummary.length > 0}
+                <span class="changes-count">{updateSummary.length} changes made</span>
+              {/if}
+            </div>
+            <div class="header-actions">
+              <button class="small-button {copySuccess ? 'success' : ''}" on:click={copyToClipboard} disabled={!newBasesYaml || !!error}>
+                {copySuccess ? '✓ Copied!' : '📋 Copy'}
+              </button>
+              <button class="small-button" on:click={downloadBase} disabled={!newBasesYaml || !!error}>Download as .base</button>
+            </div>
+          </div>
+
+          <textarea
+            value={newBasesYaml}
+            readonly
+            class="yaml-output"
+          ></textarea>
+
+          {#if updateSummary.length > 0}
+            <div class="changes-summary">
+              <h4>📋 Changes Made</h4>
+              <ul class="changes-list">
+                {#each updateSummary as change}
+                  <li>✅ {change}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+        </div>
       {:else}
-        <div class="placeholder">
-          <p>Updated syntax will appear here...</p>
+        <div class="empty-state">
+          <p>Enter old Bases YAML to see the updated syntax</p>
         </div>
       {/if}
     </div>
   </div>
+</div>
 
-  {#if updateSummary.length > 0}
-    <div class="summary">
-      <h3>📋 Changes Made</h3>
-      <ul class="changes-list">
-        {#each updateSummary as change}
-          <li>✅ {change}</li>
-        {/each}
-      </ul>
-    </div>
-  {/if}
-
+{#if updateSummary.length > 0 || newBasesYaml}
   <div class="help">
     <h3>🔧 What gets updated?</h3>
     <div class="help-grid">
@@ -233,7 +251,7 @@ views:
           <li><code>linksTo(file.file, "file")</code> → <code>file.hasLink("file")</code></li>
         </ul>
       </div>
-      
+
       <div class="help-item">
         <h4>Boolean Operators</h4>
         <ul>
@@ -242,7 +260,7 @@ views:
           <li><code>not()</code> → <code>!()</code></li>
         </ul>
       </div>
-      
+
       <div class="help-item">
         <h4>String Operations</h4>
         <ul>
@@ -256,7 +274,7 @@ views:
           <li><code>notEmpty()</code> → <code>!isEmpty()</code></li>
         </ul>
       </div>
-      
+
       <div class="help-item">
         <h4>Properties & Functions</h4>
         <ul>
@@ -265,7 +283,7 @@ views:
           <li><code>average()</code> → <code>average()</code></li>
         </ul>
       </div>
-      
+
       <div class="help-item">
         <h4>Date & Time</h4>
         <ul>
@@ -274,7 +292,7 @@ views:
           <li><code>dateDiff(a, b)</code> → <code>a - b</code></li>
         </ul>
       </div>
-      
+
       <div class="help-item">
         <h4>View Configuration</h4>
         <ul>
@@ -285,170 +303,202 @@ views:
       </div>
     </div>
   </div>
-</div>
+{/if}
 
 <style>
-  .bases-updater {
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 20px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    background: #f8f9fa;
-    min-height: 100vh;
-  }
-
-  .header {
-    text-align: center;
-    margin-bottom: 30px;
-    padding: 20px;
-    background: white;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  }
-
-  .header h1 {
-    font-size: 2.5rem;
-    margin: 0 0 10px 0;
-    color: #2c3e50;
-    font-weight: 600;
-  }
-
-  .description {
-    color: #6c757d;
-    font-size: 1.1rem;
-    margin: 0;
-    line-height: 1.5;
-  }
-
-  .controls {
+  .updater-app {
     display: flex;
-    gap: 12px;
-    margin-bottom: 30px;
-    justify-content: center;
-    flex-wrap: wrap;
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+    max-height: 100vh;
+    overflow: hidden;
   }
 
-  .btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    text-decoration: none;
-    min-height: 40px;
+  .updater-header {
+    text-align: center;
+    margin-bottom: 20px;
   }
 
-  .btn-secondary {
-    background: #6c757d;
-    color: white;
+  .updater-header h2 {
+    margin-bottom: 5px;
+    margin-top: 0;
+    color: #50567a;
   }
 
-  .btn-secondary:hover {
-    background: #5a6268;
-    transform: translateY(-1px);
+  .updater-header p {
+    color: #888;
+    margin: 0;
   }
 
-  .btn-primary {
-    background: #007bff;
-    color: white;
-    font-size: 12px;
-    padding: 6px 12px;
-    min-height: 32px;
-  }
-
-  .btn-primary:hover {
-    background: #0056b3;
-    transform: translateY(-1px);
-  }
-
-  .content {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .content-container {
+    display: flex;
     gap: 20px;
-    margin-bottom: 30px;
+    flex: 1;
+    min-height: 500px;
+    max-height: calc(100vh - 200px);
+    overflow: hidden;
   }
 
-  .input-section,
-  .output-section {
+  @media (max-width: 768px) {
+    .content-container {
+      flex-direction: column;
+    }
+
+    .result-header {
+      padding: 10px 12px;
+    }
+
+    .result-title {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 8px;
+    }
+
+    .header-actions {
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .small-button {
+      padding: 5px 10px;
+      font-size: 13px;
+    }
+  }
+
+  .editor-container, .preview-container {
+    flex: 1;
     background: white;
-    border-radius: 12px;
+    border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    min-height: 500px;
   }
 
-  .section-header {
+  .dropzone {
+    padding: 20px;
+    border: 2px dashed #ddd;
+    border-radius: 6px;
+    margin: 10px;
+    text-align: center;
+    color: #888;
+    cursor: pointer;
+  }
+
+  textarea {
+    flex-grow: 1;
+    padding: 10px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+    font-size: 14px;
+    border: none;
+    border-top: 1px solid #eee;
+    resize: none;
+    outline: none;
+    line-height: 1.4;
+    min-height: 0;
+  }
+
+  .error {
+    padding: 10px;
+    margin: 10px;
+    background: #fff0f0;
+    border-left: 3px solid #f00;
+  }
+
+  .error h3 {
+    color: #d00;
+    margin: 0 0 5px 0;
+    font-size: 16px;
+  }
+
+  .error pre {
+    margin: 0;
+    font-family: monospace;
+    overflow-x: auto;
+  }
+
+  .actions {
+    padding: 10px;
+    border-top: 1px solid #eee;
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    padding: 20px;
-    background: #f8f9fa;
-    border-bottom: 1px solid #e9ecef;
   }
 
-  .section-header h3 {
-    margin: 0;
-    color: #2c3e50;
-    font-size: 1.2rem;
-    font-weight: 600;
+  .actions button {
+    background: #50567a;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
   }
 
-  .hint {
-    color: #6c757d;
-    font-size: 0.9rem;
+  .actions button:hover {
+    background: #3a3f5a;
   }
 
-  .output-controls {
+  .actions button:disabled {
+    background: #a0a0a0;
+    cursor: not-allowed;
+  }
+
+  .header-actions {
     display: flex;
     gap: 8px;
   }
 
-  .yaml-input,
-  .yaml-output {
-    flex: 1;
-    padding: 20px;
-    border: none;
-    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-    font-size: 13px;
-    line-height: 1.5;
-    resize: none;
-    outline: none;
+  .small-button {
     background: white;
+    color: #555;
+    border: 1px solid #ddd;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
   }
 
-  .yaml-input {
-    background: #fafbfc;
+  .small-button:hover {
+    background: #f0f0f0;
+    border-color: #ccc;
   }
 
-  .yaml-input::placeholder {
-    color: #6c757d;
+  .small-button.success {
+    background: #4caf50;
+    color: white;
+    border-color: #4caf50;
   }
 
-  .yaml-output {
-    background: #f8f9fa;
-    color: #2c3e50;
+  .small-button:disabled {
+    background: #f5f5f5;
+    color: #a0a0a0;
+    border-color: #e0e0e0;
+    cursor: not-allowed;
   }
 
-  .loading {
+  .template-selector {
+    position: relative;
+  }
+
+  .loading-state, .error-state, .empty-state {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    padding: 40px;
-    color: #6c757d;
+    height: 100%;
+    color: #888;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .spinner {
     width: 20px;
     height: 20px;
     border: 2px solid #e9ecef;
-    border-top: 2px solid #007bff;
+    border-top: 2px solid #50567a;
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
@@ -458,92 +508,113 @@ views:
     100% { transform: rotate(360deg); }
   }
 
-  .error {
-    padding: 20px;
-    background: #f8d7da;
-    border: 1px solid #f5c6cb;
-    color: #721c24;
-    margin: 20px;
-    border-radius: 8px;
+  .result-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
   }
 
-  .error h4 {
-    margin: 0 0 8px 0;
-    font-size: 1rem;
+  .result-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid #eee;
+    background: #f6f8fa;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
 
-  .error p {
+  .result-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .result-header h3 {
     margin: 0;
-    font-family: monospace;
-    font-size: 0.9rem;
-  }
-
-  .placeholder {
-    padding: 40px;
-    text-align: center;
-    color: #6c757d;
-    border: 2px dashed #dee2e6;
-    margin: 20px;
-    border-radius: 8px;
-  }
-
-  .summary {
-    background: white;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    margin-bottom: 30px;
-  }
-
-  .summary h3 {
-    margin: 0 0 15px 0;
-    color: #28a745;
-    font-size: 1.2rem;
+    color: #50567a;
+    font-size: 16px;
     font-weight: 600;
+  }
+
+  .changes-count {
+    background: #28a745;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+  }
+ 
+  .yaml-output {
+    flex: 1;
+    padding: 10px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+    font-size: 14px;
+    border: none;
+    resize: none;
+    outline: none;
+    line-height: 1.4;
+    background: #f8f9fa;
+    min-height: 0;
+  }
+
+  .changes-summary {
+    padding: 10px;
+    border-top: 1px solid #eee;
+    background: #f9f9f9;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+
+  .changes-summary h4 {
+    margin: 0 0 10px 0;
+    color: #28a745;
+    font-size: 14px;
   }
 
   .changes-list {
     margin: 0;
     padding-left: 20px;
+    font-size: 13px;
   }
 
   .changes-list li {
-    margin-bottom: 8px;
-    color: #2c3e50;
-    line-height: 1.4;
+    margin-bottom: 5px;
+    color: #333;
+    line-height: 1.3;
   }
 
   .help {
     background: white;
     padding: 30px;
-    border-radius: 12px;
+    border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    margin-top: 20px;
   }
 
   .help h3 {
     margin: 0 0 20px 0;
-    color: #2c3e50;
-    font-size: 1.3rem;
+    color: #50567a;
+    font-size: 1.2rem;
     font-weight: 600;
   }
 
   .help-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 25px;
+    gap: 20px;
   }
 
   .help-item {
     background: #f8f9fa;
-    padding: 20px;
-    border-radius: 8px;
+    padding: 15px;
+    border-radius: 6px;
     border: 1px solid #e9ecef;
   }
 
   .help-item h4 {
-    margin: 0 0 12px 0;
+    margin: 0 0 10px 0;
     color: #495057;
-    font-size: 1rem;
+    font-size: 14px;
     font-weight: 600;
   }
 
@@ -553,48 +624,24 @@ views:
   }
 
   .help-item li {
-    margin-bottom: 6px;
-    font-size: 0.9rem;
-    line-height: 1.4;
-    color: #2c3e50;
+    margin-bottom: 4px;
+    font-size: 13px;
+    line-height: 1.3;
+    color: #333;
   }
 
   .help-item code {
     background: #e9ecef;
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-    font-size: 0.85rem;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+    font-size: 12px;
     color: #e83e8c;
   }
 
   @media (max-width: 768px) {
-    .bases-updater {
-      padding: 15px;
-    }
-    
-    .content {
-      grid-template-columns: 1fr;
-      gap: 15px;
-    }
-    
-    .controls {
-      flex-direction: column;
-      align-items: center;
-    }
-    
     .help-grid {
       grid-template-columns: 1fr;
-    }
-    
-    .section-header {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 8px;
-    }
-    
-    .output-controls {
-      align-self: flex-end;
     }
   }
 </style>

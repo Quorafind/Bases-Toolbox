@@ -11,11 +11,16 @@ export class BasesUpdater {
     try {
       const parsed = yaml.load(oldYaml) as any;
       const updated = this.updateBasesObject(parsed);
-      return yaml.dump(updated, {
+      let result = yaml.dump(updated, {
         quotingType: '"',
         forceQuotes: false,
         lineWidth: -1,
       });
+
+      // Post-process to fix over-escaped string concatenation expressions
+      result = this.fixEscapedStringConcatenation(result);
+
+      return result;
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error occurred";
@@ -570,5 +575,26 @@ export class BasesUpdater {
     }
 
     return args;
+  }
+
+  /**
+   * Fix over-escaped string concatenation expressions in YAML output
+   */
+  private fixEscapedStringConcatenation(yamlString: string): string {
+    // Fix expressions that contain string concatenation with + operator
+    // Pattern: key: "\"string\" + variable + \"string\""
+    // Should become: key: "string" + variable + "string"
+    return yamlString.replace(
+      /^(\s*)([^:\s]+):\s*"((?:[^"\\]|\\.)*)"\s*$/gm,
+      (match, indent, key, expression) => {
+        // Check if this looks like a string concatenation expression with escaped quotes
+        if (expression.includes(' + ') && expression.includes('\\"')) {
+          // Unescape the quotes in the expression and remove the outer quotes
+          const unescaped = expression.replace(/\\"/g, '"');
+          return `${indent}${key}: ${unescaped}`;
+        }
+        return match; // Return original if it doesn't match our pattern
+      }
+    );
   }
 }

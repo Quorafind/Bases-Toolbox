@@ -439,6 +439,11 @@ export class DataviewToBasesTransformer {
         return `${object}.${index.value.toLowerCase()}`;
       }
 
+      // Handle string and list length property
+      if (index.value.toLowerCase() === "length") {
+        return `${object}.length`;
+      }
+
       // Regular property access
       return this.mapDataviewPropertyToBaseProperty(`${object}.${index.value}`);
     }
@@ -554,7 +559,7 @@ export class DataviewToBasesTransformer {
   private isDateExpression(field: Field): boolean {
     if (field.type === "function" && field.func.type === "variable") {
       const funcName = field.func.name.toLowerCase();
-      return funcName === "date" || funcName === "now";
+      return funcName === "date" || funcName === "now" || funcName === "today";
     }
     if (field.type === "literal" && field.value instanceof DateTime) {
       return true;
@@ -577,13 +582,16 @@ export class DataviewToBasesTransformer {
         "contains",
         "containsAny",
         "containsAll",
-        "startswith",
-        "endswith",
-        "empty",
+        "startsWith",
+        "endsWith",
+        "isEmpty",
         "notEmpty",
         "hasTag",
         "hasLink",
         "inFolder",
+        "matches",
+        "linksTo",
+        "asLink",
       ];
 
       if (field.func.type === "variable") {
@@ -609,6 +617,32 @@ export class DataviewToBasesTransformer {
       !("type" in value) && // Not a Field object
       ("and" in value || "or" in value)
     );
+  }
+
+  /**
+   * Check if a function should be transformed as a method call
+   */
+  private isMethodCall(funcName: string): boolean {
+    const methodFunctions = [
+      // String methods
+      "contains", "containsAll", "containsAny", "endsWith", "icon", "isEmpty",
+      "replace", "lower", "reverse", "slice", "split", "startsWith", "title", "trim",
+      // Number methods
+      "abs", "ceil", "floor", "round", "toFixed",
+      // List methods
+      "join", "reverse", "sort", "flat", "unique", "slice",
+      // Date methods
+      "format", "date", "time",
+      // File methods
+      "asLink", "hasLink", "hasTag", "inFolder",
+      // Link methods
+      "linksTo",
+      // RegExp methods
+      "matches",
+      // Any type methods
+      "toString"
+    ];
+    return methodFunctions.includes(funcName);
   }
 
   /**
@@ -640,26 +674,55 @@ export class DataviewToBasesTransformer {
 
     // Map Dataview functions to Bases functions
     const functionMap: Record<string, string> = {
-      round: "round",
-      floor: "floor",
-      ceil: "ceil",
-      abs: "abs",
-      min: "min",
+      // Global functions
+      if: "if",
       max: "max",
-      sum: "sum",
-      avg: "average",
-      length: "length",
+      min: "min",
+      link: "link",
+      list: "list",
+      now: "now",
+      number: "number",
+      today: "today",
+      date: "date",
+      file: "file",
+
+      // Any type functions
+      tostring: "toString",
+
+      // String functions
       contains: "contains",
       containsany: "containsAny",
       containsall: "containsAll",
-      startswith: "startsWith",
       endswith: "endsWith",
+      icon: "icon",
       empty: "isEmpty",
       notempty: "!isEmpty",
+      replace: "replace",
+      lower: "lower",
+      reverse: "reverse",
+      slice: "slice",
+      split: "split",
+      startswith: "startsWith",
+      title: "title",
+      trim: "trim",
+
+      // Number functions
+      abs: "abs",
+      ceil: "ceil",
+      floor: "floor",
+      round: "round",
+      tofixed: "toFixed",
+
+      // List functions
+      join: "join",
+      sort: "sort",
+      flat: "flat",
+      unique: "unique",
+
+      // Date functions
       dateformat: "format",
-      date: "date",
-      now: "now",
-      dur: "duration",
+      format: "format",
+      time: "time",
       year: "year",
       month: "month",
       day: "day",
@@ -667,18 +730,24 @@ export class DataviewToBasesTransformer {
       minute: "minute",
       second: "second",
       millisecond: "millisecond",
-      tofixed: "toFixed",
-      tostring: "toString",
-      trim: "trim",
-      title: "title",
-      split: "split",
-      replace: "replace",
-      slice: "slice",
-      reverse: "reverse",
-      join: "join",
-      sort: "sort",
-      flat: "flat",
-      unique: "unique",
+
+      // File functions
+      aslink: "asLink",
+      haslink: "hasLink",
+      hastag: "hasTag",
+      infolder: "inFolder",
+
+      // Link functions
+      linksto: "linksTo",
+
+      // RegExp functions
+      matches: "matches",
+
+      // Legacy mappings for backward compatibility
+      sum: "sum",
+      avg: "average",
+      length: "length",
+      dur: "duration",
     };
 
     const basesFunc = functionMap[funcName.toLowerCase()] || funcName;
@@ -714,11 +783,27 @@ export class DataviewToBasesTransformer {
 
     // Special handling for certain functions
     switch (basesFunc) {
+      case "if":
+        // Handle if(condition, trueResult, falseResult?)
+        if (args.length >= 2) {
+          const condition = args[0];
+          const trueResult = args[1];
+          const falseResult = args.length > 2 ? args[2] : "null";
+          return `if(${condition}, ${trueResult}, ${falseResult})`;
+        }
+        break;
+
       case "contains":
         // Special handling for tags - convert to file.hasTag()
         if (args.length === 2 && args[0] === "tags") {
           const tag = args[1].replace(/^"/, "").replace(/"$/, "");
           return `file.hasTag("${tag}")`;
+        }
+        // For other contains calls, use method syntax
+        if (args.length >= 2) {
+          const object = args[0];
+          const searchValue = args[1];
+          return `${object}.contains(${searchValue})`;
         }
         break;
 
@@ -728,14 +813,43 @@ export class DataviewToBasesTransformer {
           const dateArg = args[0].replace(/^"/, "").replace(/"$/, "");
           switch (dateArg.toLowerCase()) {
             case "today":
-              return "now()";
+              return "today()";
             case "tomorrow":
-              return 'now() + "1 day"';
+              return 'today() + "1 day"';
             case "yesterday":
-              return 'now() + "-1 day"';
+              return 'today() + "-1 day"';
             default:
               return `date(${args[0]})`;
           }
+        }
+        break;
+
+      case "today":
+        // today() function - no arguments needed
+        return "today()";
+
+      case "now":
+        // now() function - no arguments needed
+        return "now()";
+
+      case "number":
+        // number(input) function
+        if (args.length === 1) {
+          return `number(${args[0]})`;
+        }
+        break;
+
+      case "list":
+        // list(element) function
+        if (args.length === 1) {
+          return `list(${args[0]})`;
+        }
+        break;
+
+      case "file":
+        // file(path) function
+        if (args.length === 1) {
+          return `file(${args[0]})`;
         }
         break;
 
@@ -769,7 +883,66 @@ export class DataviewToBasesTransformer {
 
       case "!isEmpty":
         // Handle notEmpty as negated isEmpty
+        if (args.length === 1) {
+          return `!(${args[0]}.isEmpty())`;
+        }
         return `!(${args.join(", ")}.isEmpty())`;
+
+      case "icon":
+        // Handle icon() method - should be called on a string
+        if (args.length === 1) {
+          return `${args[0]}.icon()`;
+        }
+        break;
+
+      case "matches":
+        // Handle RegExp matches() method
+        if (args.length === 2) {
+          const regexp = args[0];
+          const testString = args[1];
+          return `${regexp}.matches(${testString})`;
+        }
+        break;
+
+      case "asLink":
+        // Handle file.asLink() method
+        if (args.length >= 1) {
+          const file = args[0];
+          if (args.length === 1) {
+            return `${file}.asLink()`;
+          } else {
+            const display = args[1];
+            return `${file}.asLink(${display})`;
+          }
+        }
+        break;
+
+      case "linksTo":
+        // Handle link.linksTo() method
+        if (args.length === 2) {
+          const link = args[0];
+          const file = args[1];
+          return `${link}.linksTo(${file})`;
+        }
+        break;
+    }
+
+    // Check if this should be a method call (but not if it has special handling)
+    const hasSpecialHandling = [
+      "if", "contains", "date", "today", "now", "number", "list", "file", "duration",
+      "!isEmpty", "icon", "matches", "asLink", "linksTo"
+    ].includes(basesFunc);
+
+    if (this.isMethodCall(basesFunc) && args.length > 0 && !hasSpecialHandling) {
+      // For method calls, the first argument becomes the object
+      const object = args[0];
+      const methodArgs = args.slice(1);
+
+      if (methodArgs.length > 0) {
+        return `${object}.${basesFunc}(${methodArgs.join(", ")})`;
+      } else {
+        return `${object}.${basesFunc}()`;
+      }
     }
 
     return `${basesFunc}(${args.join(", ")})`;
