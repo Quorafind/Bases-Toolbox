@@ -247,19 +247,25 @@ export class DataviewToBasesTransformer {
         if (!source.folder || source.folder === "") {
           return null;
         }
-        return `inFolder(file.file, "${source.folder}")`;
-      case "tag": // Remove the # prefix if it exists
+        return `file.inFolder("${source.folder}")`;
+      case "tag":
+        // Remove the # prefix if it exists
         const tag = source.tag.startsWith("#")
           ? source.tag.slice(1)
           : source.tag;
-        return `taggedWith(file.file, "#${tag}")`;
+        return `file.hasTag("${tag}")`;
       case "link":
-        // TODO: Implement link source transformation
-        return `linksTo(file.file, "${source.file}")`;
+        return `file.hasLink("${source.file}")`;
 
       case "negate":
         const inner = this.transformSource(source.child);
-        return inner ? `not(${inner})` : null;
+        if (!inner) return null;
+
+        // If inner is an object with and/or, wrap it in not
+        if (typeof inner === "object" && ("and" in inner || "or" in inner)) {
+          return { not: [inner] };
+        }
+        return { not: [inner] };
 
       case "binaryop":
         const left = this.transformSource(source.left);
@@ -293,7 +299,7 @@ export class DataviewToBasesTransformer {
   private transformSortClause(sortStep: SortByStep, result: any): void {
     const sortFields = sortStep.fields.map((sortField) => ({
       column: this.transformFieldExpression(sortField.field),
-      direction: sortField.direction === "ascending" ? "ASC" : "DESC",
+      direction: sortField.direction === "ascending" ? "asc" : "desc",
     }));
 
     result.views[0].sort = sortFields;
@@ -349,7 +355,18 @@ export class DataviewToBasesTransformer {
         return this.transformFunction(field);
 
       case "negated":
-        return `not(${this.transformFieldExpression(field.child)})`;
+        const negatedChild = this.transformFieldExpression(field.child);
+
+        // If the child is a logical object, wrap it in not
+        if (
+          typeof negatedChild === "object" &&
+          ("and" in negatedChild || "or" in negatedChild)
+        ) {
+          return { not: [negatedChild] };
+        }
+
+        // For simple expressions, use the not object format
+        return { not: [negatedChild] };
 
       case "list":
         // Transform list literals
@@ -383,14 +400,17 @@ export class DataviewToBasesTransformer {
       // Handle Duration literals (they have toISO method)
       // Convert Duration to a string format for Bases
       const dur = value as any;
-      if (dur.years) return `duration("${dur.years} years")`;
-      if (dur.months) return `duration("${dur.months} months")`;
-      if (dur.weeks) return `duration("${dur.weeks} weeks")`;
-      if (dur.days) return `duration("${dur.days} days")`;
-      if (dur.hours) return `duration("${dur.hours} hours")`;
-      if (dur.minutes) return `duration("${dur.minutes} minutes")`;
-      if (dur.seconds) return `duration("${dur.seconds} seconds")`;
-      return `duration("0 days")`;
+      if (dur.years) return `"${dur.years} year${dur.years !== 1 ? "s" : ""}"`;
+      if (dur.months)
+        return `"${dur.months} month${dur.months !== 1 ? "s" : ""}"`;
+      if (dur.weeks) return `"${dur.weeks} week${dur.weeks !== 1 ? "s" : ""}"`;
+      if (dur.days) return `"${dur.days} day${dur.days !== 1 ? "s" : ""}"`;
+      if (dur.hours) return `"${dur.hours} hour${dur.hours !== 1 ? "s" : ""}"`;
+      if (dur.minutes)
+        return `"${dur.minutes} minute${dur.minutes !== 1 ? "s" : ""}"`;
+      if (dur.seconds)
+        return `"${dur.seconds} second${dur.seconds !== 1 ? "s" : ""}"`;
+      return `"0 days"`;
     } else {
       // Handle other literal types as needed
       return String(value);
@@ -413,9 +433,10 @@ export class DataviewToBasesTransformer {
         "hour",
         "minute",
         "second",
+        "millisecond",
       ];
       if (dateAccessors.includes(index.value.toLowerCase())) {
-        return `${index.value.toLowerCase()}(${object})`;
+        return `${object}.${index.value.toLowerCase()}`;
       }
 
       // Regular property access
@@ -446,11 +467,29 @@ export class DataviewToBasesTransformer {
       "*": "*",
       "/": "/",
       "%": "%",
-      "&": "and",
-      "|": "or",
+      "&": "&&",
+      "|": "||",
     };
 
     const operator = operatorMap[field.op] || field.op;
+
+    // Handle logical operators using object format for filters
+    if (field.op === "&" || field.op === "|") {
+      const logicalOp = field.op === "&" ? "and" : "or";
+
+      // Check if we're in a filter context (both operands are filter expressions)
+      if (
+        this.isFilterExpression(field.left) ||
+        this.isFilterExpression(field.right) ||
+        this.isLogicalObject(left) ||
+        this.isLogicalObject(right)
+      ) {
+        return this.flattenLogicalOperations(logicalOp, [left, right]);
+      }
+
+      // For non-filter contexts, use string format
+      return `${left} ${operator} ${right}`;
+    }
 
     // Handle date arithmetic specially
     if (field.op === "+" || field.op === "-") {
@@ -472,45 +511,28 @@ export class DataviewToBasesTransformer {
           "toISO" in field.right.value);
 
       if (isLeftDate && isRightDuration) {
-        // Handle date +/- duration
-        // The right side is already transformed to duration("X days")
-        const durationStr = right.replace(/^duration\(/, "").replace(/\)$/, "");
-        if (field.op === "-") {
-          // For subtraction, we need to negate the duration
-          // Check if the duration is already quoted
-          if (durationStr.startsWith('"')) {
-            // Insert the minus sign after the opening quote
-            const negatedDuration = durationStr.replace(/^"/, '"-');
-            return `dateModify(${left}, ${negatedDuration})`;
-          } else {
-            return `dateModify(${left}, "-${durationStr}")`;
-          }
-        } else {
-          return `dateModify(${left}, ${durationStr})`;
+        // Handle date +/- duration using the new syntax
+        let durationStr = right;
+        if (durationStr.startsWith('"') && durationStr.endsWith('"')) {
+          // Remove quotes from duration string
+          durationStr = durationStr.slice(1, -1);
         }
+
+        if (field.op === "-") {
+          // For subtraction, negate the duration
+          if (!durationStr.startsWith("-")) {
+            durationStr = `-${durationStr}`;
+          }
+        }
+
+        return `${left} + "${durationStr}"`;
       }
 
       // Check if both sides are dates (for date difference)
       if (isLeftDate && this.isDateExpression(field.right)) {
-        // dateDiff returns milliseconds, convert to days
-        return `floor(dateDiff(${right},${left}) / (1000 * 60 * 60 * 24))`;
-      }
-    }
-
-    // Handle logical operators differently - they return objects for filter expressions
-    if (operator === "and" || operator === "or") {
-      // If we're in a filter context, return the object format
-      // Check if both operands are comparison expressions or filter functions
-      if (
-        this.isFilterExpression(field.left) ||
-        this.isFilterExpression(field.right) ||
-        this.isLogicalObject(left) ||
-        this.isLogicalObject(right)
-      ) {
-        return this.flattenLogicalOperations(operator as "and" | "or", [
-          left,
-          right,
-        ]);
+        // Date difference - this would need to be handled as a formula
+        // For now, return a basic subtraction
+        return `${left} - ${right}`;
       }
     }
 
@@ -520,7 +542,7 @@ export class DataviewToBasesTransformer {
       field.right.type === "literal" &&
       typeof field.right.value === "string"
     ) {
-      return `join("", ${left}, ${right})`;
+      return `${left} + ${right}`;
     }
 
     return `${left} ${operator} ${right}`;
@@ -559,14 +581,9 @@ export class DataviewToBasesTransformer {
         "endswith",
         "empty",
         "notEmpty",
-        "taggedWith",
-        "linksTo",
-        "dateEquals",
-        "dateNotEquals",
-        "dateBefore",
-        "dateAfter",
-        "dateOnOrBefore",
-        "dateOnOrAfter",
+        "hasTag",
+        "hasLink",
+        "inFolder",
       ];
 
       if (field.func.type === "variable") {
@@ -609,13 +626,15 @@ export class DataviewToBasesTransformer {
       funcName = field.func.value;
     }
 
-    // Special handling for link() function - transform to wikilink format
+    // Special handling for link() function - transform to link() function call
     if (funcName.toLowerCase() === "link") {
       if (field.arguments.length === 1) {
         const linkTarget = this.transformFieldExpression(field.arguments[0]);
-        // Remove surrounding quotes if present and wrap in wikilink format
-        const cleanTarget = linkTarget.replace(/^"/, "").replace(/"$/, "");
-        return `"[[${cleanTarget}]]"`;
+        return `link(${linkTarget})`;
+      } else if (field.arguments.length === 2) {
+        const linkTarget = this.transformFieldExpression(field.arguments[0]);
+        const displayText = this.transformFieldExpression(field.arguments[1]);
+        return `link(${linkTarget}, ${displayText})`;
       }
     }
 
@@ -624,36 +643,42 @@ export class DataviewToBasesTransformer {
       round: "round",
       floor: "floor",
       ceil: "ceil",
+      abs: "abs",
       min: "min",
       max: "max",
       sum: "sum",
       avg: "average",
-      length: "len",
+      length: "length",
       contains: "contains",
       containsany: "containsAny",
       containsall: "containsAll",
-      startswith: "startswith",
-      endswith: "endswith",
-      empty: "empty",
-      notempty: "notEmpty",
-      dateformat: "dateFormat",
+      startswith: "startsWith",
+      endswith: "endsWith",
+      empty: "isEmpty",
+      notempty: "!isEmpty",
+      dateformat: "format",
       date: "date",
       now: "now",
       dur: "duration",
-      datemodify: "dateModify",
-      datediff: "dateDiff",
-      dateequals: "dateEquals",
-      datenotequals: "dateNotEquals",
-      datebefore: "dateBefore",
-      dateafter: "dateAfter",
-      dateonorbefore: "dateOnOrBefore",
-      dateonorafter: "dateOnOrAfter",
       year: "year",
       month: "month",
       day: "day",
       hour: "hour",
       minute: "minute",
       second: "second",
+      millisecond: "millisecond",
+      tofixed: "toFixed",
+      tostring: "toString",
+      trim: "trim",
+      title: "title",
+      split: "split",
+      replace: "replace",
+      slice: "slice",
+      reverse: "reverse",
+      join: "join",
+      sort: "sort",
+      flat: "flat",
+      unique: "unique",
     };
 
     const basesFunc = functionMap[funcName.toLowerCase()] || funcName;
@@ -667,9 +692,9 @@ export class DataviewToBasesTransformer {
           case "today":
             return "now()";
           case "tomorrow":
-            return 'dateModify(now(), "1 day")';
+            return 'now() + "1 day"';
           case "yesterday":
-            return 'dateModify(now(), "-1 day")';
+            return 'now() + "-1 day"';
         }
       }
 
@@ -690,10 +715,10 @@ export class DataviewToBasesTransformer {
     // Special handling for certain functions
     switch (basesFunc) {
       case "contains":
-        // Special handling for tags
+        // Special handling for tags - convert to file.hasTag()
         if (args.length === 2 && args[0] === "tags") {
           const tag = args[1].replace(/^"/, "").replace(/"$/, "");
-          return `taggedWith(file.file, "${tag}")`;
+          return `file.hasTag("${tag}")`;
         }
         break;
 
@@ -705,11 +730,11 @@ export class DataviewToBasesTransformer {
             case "today":
               return "now()";
             case "tomorrow":
-              return 'dateModify(now(), "1 day")';
+              return 'now() + "1 day"';
             case "yesterday":
-              return 'dateModify(now(), "-1 day")';
+              return 'now() + "-1 day"';
             default:
-              return args[0];
+              return `date(${args[0]})`;
           }
         }
         break;
@@ -721,14 +746,30 @@ export class DataviewToBasesTransformer {
           const durMatch = args[0].match(/(\d+)\s*([a-zA-Z]+)/);
           if (durMatch) {
             const [, num, unit] = durMatch;
-            if (unit.toLowerCase().startsWith("week")) {
-              const days = parseInt(num) * 7;
-              return `"${days} days"`;
+            const numVal = parseInt(num);
+            let unitName = unit.toLowerCase();
+
+            // Convert weeks to days
+            if (unitName.startsWith("week")) {
+              const days = numVal * 7;
+              return `"${days} day${days !== 1 ? "s" : ""}"`;
             }
-            return `"${num} ${unit}"`;
+
+            // Ensure proper pluralization
+            if (numVal !== 1 && !unitName.endsWith("s")) {
+              unitName += "s";
+            } else if (numVal === 1 && unitName.endsWith("s")) {
+              unitName = unitName.slice(0, -1);
+            }
+
+            return `"${num} ${unitName}"`;
           }
         }
         break;
+
+      case "!isEmpty":
+        // Handle notEmpty as negated isEmpty
+        return `!(${args.join(", ")}.isEmpty())`;
     }
 
     return `${basesFunc}(${args.join(", ")})`;
@@ -745,12 +786,13 @@ export class DataviewToBasesTransformer {
       "file.path": "file.path",
       "file.name": "file.name",
       "file.folder": "file.folder",
-      "file.ext": "file.extension",
+      "file.ext": "file.ext",
       "file.size": "file.size",
       "file.ctime": "file.ctime",
       "file.mtime": "file.mtime",
       "file.cday": "file.ctime",
       "file.mday": "file.mtime",
+      tags: "tags",
     };
 
     if (propertyMap[prop]) {
@@ -781,7 +823,7 @@ export class DataviewToBasesTransformer {
       return sourceFilters;
     }
 
-    // Combine with AND using the flattening logic
+    // Combine with AND using the object format
     return this.flattenLogicalOperations("and", [sourceFilters, whereFilters]);
   }
 

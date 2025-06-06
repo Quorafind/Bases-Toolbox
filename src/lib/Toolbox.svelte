@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import DataviewConverter from './DataviewConverter.svelte';
+  import BasesUpdater from './BasesUpdater.svelte';
   import About from './About.svelte';
   
   // Toolbox tabs
   const TABS = {
     BASES_PREVIEW: 'bases-preview',
     DATAVIEW_CONVERTER: 'dataview-converter',
+    BASES_UPDATER: 'bases-updater',
     ABOUT: 'about'
   };
   
@@ -50,6 +52,12 @@
         Dataview Converter
       </button>
       <button 
+        class={activeTab === TABS.BASES_UPDATER ? 'active' : ''}
+        on:click={() => setActiveTab(TABS.BASES_UPDATER)}
+      >
+        Bases Updater
+      </button>
+      <button 
         class={activeTab === TABS.ABOUT ? 'active' : ''}
         on:click={() => setActiveTab(TABS.ABOUT)}
       >
@@ -70,6 +78,8 @@
       <slot name="bases-preview"></slot>
     {:else if activeTab === TABS.DATAVIEW_CONVERTER}
       <DataviewConverter />
+    {:else if activeTab === TABS.BASES_UPDATER}
+      <BasesUpdater />
     {:else if activeTab === TABS.ABOUT}
       <About />
     {/if}
