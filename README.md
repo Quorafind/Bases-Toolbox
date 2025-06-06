@@ -25,7 +25,7 @@ A comprehensive toolbox for working with Obsidian Bases files, featuring:
   - SORT with ASC/DESC directions
   - LIMIT and GROUP BY
 - Copy converted YAML to create your .base files
-
+ 
 ## Usage
 
 1. Clone this repository
@@ -56,8 +56,3 @@ The build files will be in the `dist` folder.
 ## License
 
 MIT
-
-## 相关资源
-
-- [Obsidian Bases 文档](https://help.obsidian.md/Obsidian+Sync/Introduction+to+Obsidian+Sync)
-- [YAML 语法参考](https://yaml.org/spec/1.2.2/)

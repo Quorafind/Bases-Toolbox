@@ -98,13 +98,33 @@ SORT due ASC`
     },
     {
       name: "Date Arithmetic Examples",
-      query: `TABLE 
+      query: `TABLE
   date(today) as "Today",
-  date(today) + dur(7 days) as "Next Week", 
+  date(today) + dur(7 days) as "Next Week",
   date(today) - dur(30 days) as "30 Days Ago",
   date("2024-12-25") - date(today) as "Days to Christmas"
 FROM "notes"
 LIMIT 1`
+    },
+    {
+      name: "Choice Function (Star Rating)",
+      query: `TABLE without id
+	issueNumber as "Issue Number",
+	link(file.link, string(publishDate)) as "Published on",
+	choice(round(rating) = null, "",
+	    choice(rating <= 1, "★☆☆☆☆",
+			choice(rating = 2, "★★☆☆☆",
+                choice(rating = 3, "★★★☆☆",
+                    choice(rating = 4, "★★★★☆",
+                        choice(rating <= 5, "★★★★★", "")
+                    )
+                )
+			)
+		)
+	) as "Rating"
+WHERE
+	contains(entityIs, [[Comic Issues Collection|Comic Issues]]) AND contains(series, this.file.link) AND !contains(file.folder, "curtain")
+SORT issueNumber asc`
     }
   ];
 

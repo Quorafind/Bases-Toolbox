@@ -123,7 +123,12 @@ export class DataviewToBasesTransformer {
    */
   toYaml(query: Query, placeFiltersInView: boolean = true): string {
     const basesObject = this.transform(query, placeFiltersInView);
-    return yaml.dump(basesObject);
+    return yaml.dump(basesObject, {
+      quotingType: '"',
+      forceQuotes: false,
+      lineWidth: -1, // Disable line wrapping
+      flowLevel: -1, // Use block style for all levels
+    });
   }
 
   /**
@@ -676,6 +681,7 @@ export class DataviewToBasesTransformer {
     const functionMap: Record<string, string> = {
       // Global functions
       if: "if",
+      choice: "choice", // choice() will be converted to if() in special handling
       max: "max",
       min: "min",
       link: "link",
@@ -789,6 +795,17 @@ export class DataviewToBasesTransformer {
           const condition = args[0];
           const trueResult = args[1];
           const falseResult = args.length > 2 ? args[2] : "null";
+          return `if(${condition}, ${trueResult}, ${falseResult})`;
+        }
+        break;
+
+      case "choice":
+        // Handle choice(condition, trueResult, falseResult) - convert to if
+        // choice() is essentially the same as if() in Bases
+        if (args.length >= 2) {
+          const condition = args[0];
+          const trueResult = args[1];
+          const falseResult = args.length > 2 ? args[2] : '""';
           return `if(${condition}, ${trueResult}, ${falseResult})`;
         }
         break;
@@ -929,7 +946,7 @@ export class DataviewToBasesTransformer {
 
     // Check if this should be a method call (but not if it has special handling)
     const hasSpecialHandling = [
-      "if", "contains", "date", "today", "now", "number", "list", "file", "duration",
+      "if", "choice", "contains", "date", "today", "now", "number", "list", "file", "duration",
       "!isEmpty", "icon", "matches", "asLink", "linksTo"
     ].includes(basesFunc);
 
